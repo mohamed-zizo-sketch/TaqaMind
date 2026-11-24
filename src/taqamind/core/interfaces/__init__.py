@@ -70,6 +70,18 @@ from taqamind.core.interfaces.ml import (
     validate_prediction_request,
     validate_training_request,
 )
+from taqamind.core.interfaces.model_registry import (
+    ModelFeatureSpecification,
+    ModelRegistry,
+    ModelRegistryEntry,
+    ModelScope,
+    ModelStatus,
+    ModelTransitionAction,
+    ModelTransitionRequest,
+    ModelVersion,
+    PromotionComparison,
+    validate_model_transition,
+)
 from taqamind.core.interfaces.prediction import (
     DerivedRatePrediction,
     PredictionBatchResult,
@@ -274,4 +286,14 @@ __all__ = [
     "calculate_split_fingerprint",
     "calculate_training_configuration_fingerprint",
     "find_previously_exposed_test_records",
+    "ModelFeatureSpecification",
+    "ModelRegistry",
+    "ModelRegistryEntry",
+    "ModelScope",
+    "ModelStatus",
+    "ModelTransitionAction",
+    "ModelTransitionRequest",
+    "ModelVersion",
+    "PromotionComparison",
+    "validate_model_transition",
 ]
