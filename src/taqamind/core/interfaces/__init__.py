@@ -15,6 +15,12 @@ from taqamind.core.interfaces.dataset import (
     DatasetState,
     TransformationRecord,
 )
+from taqamind.core.interfaces.results import (
+    ExecutionError,
+    ExecutionStatus,
+    StageResult,
+    StageTiming,
+)
 
 __all__ = [
     "ArtifactFormat",
@@ -23,8 +29,12 @@ __all__ = [
     "DatasetColumnSchema",
     "DatasetMetadata",
     "DatasetState",
+    "ExecutionError",
+    "ExecutionStatus",
     "PipelineContext",
     "SHA256Digest",
+    "StageResult",
+    "StageTiming",
     "TransformationRecord",
     "calculate_bytes_sha256",
     "calculate_file_sha256",
