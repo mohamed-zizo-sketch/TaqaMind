@@ -1,0 +1,102 @@
+# ==========================
+# Python
+# ==========================
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# ==========================
+# Virtual Environments
+# ==========================
+
+.venv/
+venv/
+env/
+
+# ==========================
+# Secrets and Credentials
+# ==========================
+
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+credentials.json
+secrets.json
+secrets/
+
+# ==========================
+# Industrial Datasets
+# ==========================
+
+/data/
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.feather
+*.sqlite
+*.sqlite3
+*.db
+
+# ==========================
+# Model Artifacts
+# ==========================
+
+/artifacts/
+*.pkl
+*.pickle
+*.joblib
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.ubj
+
+# ==========================
+# Generated Outputs
+# ==========================
+
+/reports/
+logs/
+outputs/
+*.log
+
+# ==========================
+# Jupyter
+# ==========================
+
+.ipynb_checkpoints/
+
+# ==========================
+# Testing and Code Quality
+# ==========================
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ==========================
+# IDE
+# ==========================
+
+.vscode/
+.idea/
+
+# ==========================
+# Operating Systems
+# ==========================
+
+.DS_Store
+Thumbs.db
+Desktop.ini
