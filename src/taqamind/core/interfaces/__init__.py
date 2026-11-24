@@ -129,6 +129,10 @@ from taqamind.core.interfaces.results import (
     StageResult,
     StageTiming,
 )
+from taqamind.core.interfaces.serialization import (
+    deserialize_contract,
+    serialize_contract,
+)
 from taqamind.core.interfaces.splitting import (
     SplitConfiguration,
     SplitManifest,
@@ -315,5 +319,6 @@ __all__ = [
     "PartitionDataReference",
     "ProtectedTestDataAccess",
     "ProtectedTestDataProvider",
-    "validate_active_model_access",
+    "validate_active_model_access","deserialize_contract",
+    "serialize_contract",
 ]
