@@ -34,11 +34,21 @@ from taqamind.core.interfaces.processing_models import (
     MappingProposal,
     ProfilingResult,
 )
+from taqamind.core.interfaces.readiness import (
+    TrainingReadinessResult,
+)
 from taqamind.core.interfaces.results import (
     ExecutionError,
     ExecutionStatus,
     StageResult,
     StageTiming,
+)
+from taqamind.core.interfaces.splitting import (
+    SplitConfiguration,
+    SplitManifest,
+    SplitPartition,
+    SplitRole,
+    SplitStrategy,
 )
 
 __all__ = [
@@ -65,8 +75,14 @@ __all__ = [
     "ProfilingResult",
     "SHA256Digest",
     "SemanticValidator",
+    "SplitConfiguration",
+    "SplitManifest",
+    "SplitPartition",
+    "SplitRole",
+    "SplitStrategy",
     "StageResult",
     "StageTiming",
+    "TrainingReadinessResult",
     "TransformationRecord",
     "calculate_bytes_sha256",
     "calculate_file_sha256",
