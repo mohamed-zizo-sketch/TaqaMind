@@ -15,6 +15,17 @@ from taqamind.core.interfaces.candidates import (
     ValidationMetric,
 )
 from taqamind.core.interfaces.context import PipelineContext
+from taqamind.core.interfaces.data_access import (
+    ActiveModelProvider,
+    DataAccessDeniedError,
+    DataAccessError,
+    DevelopmentDataAccess,
+    DevelopmentDataProvider,
+    PartitionDataReference,
+    ProtectedTestDataAccess,
+    ProtectedTestDataProvider,
+    validate_active_model_access,
+)
 from taqamind.core.interfaces.dataset import (
     DatasetArtifact,
     DatasetColumnSchema,
@@ -296,4 +307,13 @@ __all__ = [
     "ModelVersion",
     "PromotionComparison",
     "validate_model_transition",
+    "ActiveModelProvider",
+    "DataAccessDeniedError",
+    "DataAccessError",
+    "DevelopmentDataAccess",
+    "DevelopmentDataProvider",
+    "PartitionDataReference",
+    "ProtectedTestDataAccess",
+    "ProtectedTestDataProvider",
+    "validate_active_model_access",
 ]
