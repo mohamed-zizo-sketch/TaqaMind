@@ -131,3 +131,10 @@ class PipelineStage(StrEnum):
     EVALUATION = "evaluation"
     REGISTRY = "registry"
     PREDICTION = "prediction"
+class PlatformModule(StrEnum):
+    """Industrial intelligence modules."""
+
+    WASTE_MANAGEMENT = "waste_management"
+    ENERGY_EFFICIENCY = "energy_efficiency"
+    BUSINESS_ANALYTICS = "business_analytics"
+    PRODUCTION_OPTIMIZATION = "production_optimization"
