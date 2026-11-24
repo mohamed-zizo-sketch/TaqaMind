@@ -15,6 +15,25 @@ from taqamind.core.interfaces.dataset import (
     DatasetState,
     TransformationRecord,
 )
+from taqamind.core.interfaces.processing import (
+    ColumnMapper,
+    DataCleaner,
+    DataIngestion,
+    DataProfiler,
+    FeatureEngineer,
+    SemanticValidator,
+    validate_approved_mapping,
+    validate_processing_input,
+)
+from taqamind.core.interfaces.processing_models import (
+    ApprovedMapping,
+    ColumnMappingEntry,
+    ColumnProfile,
+    DatasetProfile,
+    MappingMethod,
+    MappingProposal,
+    ProfilingResult,
+)
 from taqamind.core.interfaces.results import (
     ExecutionError,
     ExecutionStatus,
@@ -23,19 +42,34 @@ from taqamind.core.interfaces.results import (
 )
 
 __all__ = [
+    "ApprovedMapping",
     "ArtifactFormat",
     "ArtifactReference",
+    "ColumnMapper",
+    "ColumnMappingEntry",
+    "ColumnProfile",
+    "DataCleaner",
+    "DataIngestion",
+    "DataProfiler",
     "DatasetArtifact",
     "DatasetColumnSchema",
     "DatasetMetadata",
+    "DatasetProfile",
     "DatasetState",
     "ExecutionError",
     "ExecutionStatus",
+    "FeatureEngineer",
+    "MappingMethod",
+    "MappingProposal",
     "PipelineContext",
+    "ProfilingResult",
     "SHA256Digest",
+    "SemanticValidator",
     "StageResult",
     "StageTiming",
     "TransformationRecord",
     "calculate_bytes_sha256",
     "calculate_file_sha256",
+    "validate_approved_mapping",
+    "validate_processing_input",
 ]
