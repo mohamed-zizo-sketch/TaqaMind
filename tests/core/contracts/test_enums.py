@@ -6,6 +6,7 @@ from enum import StrEnum
 import pytest
 
 from taqamind.core.contracts import (
+    ConfirmationStatus,
     DatasetPurpose,
     DataType,
     FeatureAvailability,
@@ -13,6 +14,7 @@ from taqamind.core.contracts import (
     FeatureRole,
     MissingValuePolicy,
     ReadinessStatus,
+    TargetKind,
     TaskType,
     ValidationSeverity,
 )
@@ -27,6 +29,8 @@ ENUMS = [
     ValidationSeverity,
     DatasetPurpose,
     ReadinessStatus,
+    TargetKind,
+    ConfirmationStatus,
 ]
 
 

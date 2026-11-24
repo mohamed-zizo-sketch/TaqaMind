@@ -89,3 +89,19 @@ class FeatureOrigin(StrEnum):
     DERIVED = "derived"
     CONFIGURED = "configured"
     UNKNOWN = "unknown"
+
+class TargetKind(StrEnum):
+    """The measurement semantics of a prediction target."""
+
+    QUANTITY = "quantity"
+    RATE = "rate"
+    CONTINUOUS = "continuous"
+    CATEGORY = "category"
+    COUNT = "count"
+
+
+class ConfirmationStatus(StrEnum):
+    """Business semantics confirmation status."""
+
+    UNCONFIRMED = "unconfirmed"
+    CONFIRMED = "confirmed"
