@@ -11,7 +11,9 @@ from taqamind.core.contracts.enums import (
     FeatureAvailability,
     FeatureOrigin,
     FeatureRole,
+    IssueImpact,
     MissingValuePolicy,
+    PipelineStage,
     ReadinessStatus,
     TargetKind,
     TaskType,
@@ -27,6 +29,11 @@ from taqamind.core.contracts.target import (
     TargetContract,
     TargetDefinition,
 )
+from taqamind.core.contracts.validation import (
+    ValidationIssue,
+    ValidationReport,
+    ValidationSummary,
+)
 
 __all__ = [
     "ConfirmationStatus",
@@ -38,7 +45,9 @@ __all__ = [
     "FeatureContract",
     "FeatureOrigin",
     "FeatureRole",
+    "IssueImpact",
     "MissingValuePolicy",
+    "PipelineStage",
     "PredictionContext",
     "RateDefinition",
     "ReadinessStatus",
@@ -47,5 +56,8 @@ __all__ = [
     "TargetDefinition",
     "TargetKind",
     "TaskType",
+    "ValidationIssue",
+    "ValidationReport",
     "ValidationSeverity",
+    "ValidationSummary",
 ]

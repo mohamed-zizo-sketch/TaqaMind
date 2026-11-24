@@ -105,3 +105,29 @@ class ConfirmationStatus(StrEnum):
 
     UNCONFIRMED = "unconfirmed"
     CONFIRMED = "confirmed"
+
+class IssueImpact(StrEnum):
+    """Operational impact of a validation issue."""
+
+    NONE = "none"
+    LIMITED = "limited"
+    BLOCKING = "blocking"
+
+
+class PipelineStage(StrEnum):
+    """Stages that can produce validation reports."""
+
+    CONTRACT_VALIDATION = "contract_validation"
+    INGESTION = "ingestion"
+    PROFILING = "profiling"
+    COLUMN_MAPPING = "column_mapping"
+    SEMANTIC_VALIDATION = "semantic_validation"
+    LINEAGE = "lineage"
+    CLEANING = "cleaning"
+    FEATURE_ENGINEERING = "feature_engineering"
+    READINESS = "readiness"
+    SPLITTING = "splitting"
+    TRAINING = "training"
+    EVALUATION = "evaluation"
+    REGISTRY = "registry"
+    PREDICTION = "prediction"
