@@ -138,6 +138,21 @@ from taqamind.core.interfaces.training import (
     TrainingBudget,
     TrainingConfiguration,
 )
+from taqamind.core.interfaces.training_registry import (
+    EvaluationRegistry,
+    EvaluationReservation,
+    RecordUsage,
+    RecordUsageRegistry,
+    RecordUsageRole,
+    SplitRegistry,
+    TrainingIntent,
+    TrainingMode,
+    TrainingRegistry,
+    TrainingReuseKey,
+    calculate_split_fingerprint,
+    calculate_training_configuration_fingerprint,
+    find_previously_exposed_test_records,
+)
 
 __all__ = [
     "AcceptancePolicy",
@@ -246,4 +261,17 @@ __all__ = [
     "validate_processing_input",
     "validate_training_request",
     "verify_artifact_integrity",
+    "EvaluationRegistry",
+    "EvaluationReservation",
+    "RecordUsage",
+    "RecordUsageRegistry",
+    "RecordUsageRole",
+    "SplitRegistry",
+    "TrainingIntent",
+    "TrainingMode",
+    "TrainingRegistry",
+    "TrainingReuseKey",
+    "calculate_split_fingerprint",
+    "calculate_training_configuration_fingerprint",
+    "find_previously_exposed_test_records",
 ]
