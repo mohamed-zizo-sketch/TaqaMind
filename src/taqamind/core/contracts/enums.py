@@ -72,3 +72,20 @@ class ReadinessStatus(StrEnum):
     READY = "ready"
     LIMITED = "limited"
     BLOCKED = "blocked"
+
+class MissingValuePolicy(StrEnum):
+    """Allowed strategies for missing feature values."""
+
+    REJECT = "reject"
+    ALLOW = "allow"
+    IMPUTE = "impute"
+
+
+class FeatureOrigin(StrEnum):
+    """How a feature value is obtained."""
+
+    MEASURED = "measured"
+    RECORDED = "recorded"
+    DERIVED = "derived"
+    CONFIGURED = "configured"
+    UNKNOWN = "unknown"
