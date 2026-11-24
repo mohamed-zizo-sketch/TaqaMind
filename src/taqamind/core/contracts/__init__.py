@@ -1,5 +1,9 @@
 """Public interface for shared industrial data contracts."""
 
+from taqamind.core.contracts.dataset import (
+    DatasetContract,
+    PredictionContext,
+)
 from taqamind.core.contracts.enums import (
     ConfirmationStatus,
     DatasetPurpose,
@@ -26,6 +30,7 @@ from taqamind.core.contracts.target import (
 
 __all__ = [
     "ConfirmationStatus",
+    "DatasetContract",
     "DatasetPurpose",
     "DataType",
     "FeatureAvailability",
@@ -34,6 +39,7 @@ __all__ = [
     "FeatureOrigin",
     "FeatureRole",
     "MissingValuePolicy",
+    "PredictionContext",
     "RateDefinition",
     "ReadinessStatus",
     "TargetConfirmation",
