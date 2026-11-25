@@ -2,7 +2,8 @@
   "domain_id": "iron_manufacturing",
   "domain_version": "1.0.0",
   "git_branch": "feature/iron_manufacturing/pipeline-integration",
-  "baseline_core_commit_sha": "d9cdb911d094f49c887d223144746b2acad462c5",
+  "baseline_core_commit_sha": "3e189ddf0b92b4394a516d180dabee05f3e71f80",
+  "initial_branch_base_sha": "d9cdb911d094f49c887d223144746b2acad462c5",
   "supported_processes": [
     {
       "process_id": "eaf_meltshop",
@@ -115,40 +116,49 @@
     "tests/domains/iron_manufacturing/test_ml_splitting_and_leakage.py",
     "tests/domains/iron_manufacturing/test_persistence_prediction_and_retraining.py"
   ],
-  "temporary_adapters": [
+  "shared_core_p1_1_to_p1_5_engines_used_directly": [
+    "taqamind.core.registry.LocalDatasetArtifactStorage",
+    "taqamind.core.registry.LocalModelArtifactStorage",
+    "taqamind.core.registry.LocalDatasetRegistry",
+    "taqamind.core.lineage.LocalRecordLineageRegistry",
+    "taqamind.core.ingestion.CsvDataIngestion",
+    "taqamind.core.profiling.PandasDataProfiler",
+    "taqamind.core.mapping.DeterministicColumnMapper",
+    "taqamind.core.validation.ContractSemanticValidator",
+    "taqamind.core.preprocessing.ContractDataCleaner",
+    "taqamind.core.feature_engineering.DeterministicFeatureEngineer",
+    "taqamind.core.feature_engineering.DerivedFeatureSpec",
+    "taqamind.core.preprocessing.TabularPreprocessor"
+  ],
+  "retired_duplicate_adapters": [
+    "src/taqamind/domains/iron_manufacturing/adapters/storage.py",
+    "src/taqamind/domains/iron_manufacturing/adapters/dataset_registry.py",
+    "src/taqamind/domains/iron_manufacturing/adapters/processing.py"
+  ],
+  "core_audit_mitigation_wrappers": [
     {
-      "path": "src/taqamind/domains/iron_manufacturing/adapters/storage.py",
-      "symbols": ["LocalDatasetArtifactStorage", "LocalModelArtifactStorage"],
-      "protocols": ["DatasetArtifactStorage", "ModelArtifactStorage"],
-      "proposed_core_destination": "taqamind.core.storage.local"
-    },
-    {
-      "path": "src/taqamind/domains/iron_manufacturing/adapters/dataset_registry.py",
-      "symbols": ["LocalDatasetRegistry", "LocalRecordLineageRegistry"],
-      "protocols": ["DatasetRegistry", "RecordLineageRegistry"],
-      "proposed_core_destination": "taqamind.core.lineage.registry"
-    },
-    {
-      "path": "src/taqamind/domains/iron_manufacturing/adapters/processing.py",
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/unit_mapper.py",
       "symbols": [
-        "LocalCsvDataIngestion",
-        "LocalDataProfiler",
-        "LocalColumnMapper",
-        "LocalSemanticValidator",
-        "LocalDataCleaner",
-        "LocalFeatureEngineer"
+        "IronUnitAwareColumnMapper",
+        "IronSemanticValidator",
+        "ProcessFeatureEngineerRouter"
       ],
-      "protocols": [
-        "DataIngestion",
-        "DataProfiler",
-        "ColumnMapper",
-        "SemanticValidator",
-        "DataCleaner",
-        "FeatureEngineer"
-      ],
-      "proposed_core_destination": "taqamind.core.{ingestion,profiling,mapping,validation,preprocessing,feature_engineering}"
+      "mitigations": ["AUD-001", "AUD-004"]
     },
     {
+      "path": "src/taqamind/domains/iron_manufacturing/services/lineage_service.py",
+      "symbols": ["register_dataset_lineage"],
+      "mitigations": ["AUD-008"]
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/_store.py",
+      "symbols": ["strip_computed_fields", "atomic_write_json"],
+      "mitigations": ["ValidationReport computed_field JSON round-trip"]
+    }
+  ],
+  "remaining_p1_6_to_p1_8_gap_adapters": [
+    {
+      "phase": "P1.6",
       "path": "src/taqamind/domains/iron_manufacturing/adapters/readiness_and_splitting.py",
       "symbols": [
         "LocalTrainingReadinessChecker",
@@ -163,6 +173,7 @@
       "proposed_core_destination": "taqamind.core.{readiness,splitting}"
     },
     {
+      "phase": "P1.6-P1.7",
       "path": "src/taqamind/domains/iron_manufacturing/adapters/training_registry.py",
       "symbols": [
         "LocalSplitRegistry",
@@ -179,6 +190,7 @@
       "proposed_core_destination": "taqamind.core.registry.ml_governance"
     },
     {
+      "phase": "P1.7-P1.8",
       "path": "src/taqamind/domains/iron_manufacturing/adapters/data_access.py",
       "symbols": [
         "LocalDevelopmentDataProvider",
@@ -193,6 +205,7 @@
       "proposed_core_destination": "taqamind.core.data_access.local"
     },
     {
+      "phase": "P1.7-P1.8",
       "path": "src/taqamind/domains/iron_manufacturing/adapters/modeling.py",
       "symbols": [
         "ControlledModelTrainer",
@@ -207,6 +220,7 @@
       "proposed_core_destination": "taqamind.core.{automl,evaluation,prediction}"
     },
     {
+      "phase": "P1.8",
       "path": "src/taqamind/domains/iron_manufacturing/adapters/model_registry.py",
       "symbols": ["LocalModelRegistry"],
       "protocols": ["ModelRegistry"],
@@ -214,27 +228,32 @@
     }
   ],
   "verification_results": {
-    "verified_at_utc": "2026-11-25T14:17:08Z",
+    "verified_at_utc": "2026-11-25T23:31:39Z",
     "python_version": "3.13.1",
     "domain_pytest": {
       "command": "python -m pytest tests/domains/iron_manufacturing -v --cov=taqamind.domains.iron_manufacturing --cov-report=term-missing",
       "passed": 20,
       "failed": 0,
-      "coverage_pct": 85
+      "statements": 2518,
+      "missed": 399,
+      "coverage_pct": 84
     },
     "full_repo_pytest": {
       "command": "python -m pytest -q",
-      "passed": 812,
-      "failed": 0
+      "passed": 834,
+      "failed": 1,
+      "pre_existing_core_failure_notes": "tests/core/test_artifact_storage.py::test_model_put_exists_and_open_verified hits Windows 260-char MAX_PATH on default AppData tmp_path inside Core 3e189dd LocalModelArtifactStorage (os.replace without \\\\?\\ prefix). With short --basetemp=D:\\tm_pt, tests/core/test_artifact_storage.py passes 9/9 (835/835 repo-wide)."
     },
     "ruff_lint": {
-      "command": "python -m ruff check src tests research/iron_manufacturing --no-cache",
+      "command": "python -m ruff check src tests --no-cache",
       "status": "passed",
       "errors": 0
     },
     "cli_separate_process_verification": {
       "process": "eaf_meltshop",
       "fixture_type": "explicit_synthetic",
+      "model_version_id": "85af397e-7027-47a9-89a8-14652eda293f",
+      "artifact_sha256": "f8e2d987c34f8631143260f05301ac47090a3fa8e52830b294feb38c51e31534",
       "selected_family": "elastic_net",
       "baseline_test_mae": 0.76041,
       "selected_test_mae": 0.256718,
@@ -248,6 +267,7 @@
   "remaining_blockers": [
     "No real labeled Egyptian iron/steel factory historical CSV datasets are currently available; production training remains BLOCKED until factory data is onboarded.",
     "Factory sign-off on target measurement semantics (EAF hot-heel/skull crediting, rolling mill-scale weighing, scrap weighbridge timing) is required before confirming production targets.",
-    "Local filesystem adapters require migration to transactional Shared Core storage/database infrastructure for concurrent multi-worker production deployment."
+    "Shared Core 3e189dd LocalModelArtifactStorage lacks Windows extended-length (\\\\?\\) path handling, causing paths >260 chars on deep Windows temp directories to raise FileNotFoundError.",
+    "Local filesystem P1.6-P1.8 adapters require migration to transactional Shared Core storage/database infrastructure for concurrent multi-worker production deployment."
   ]
 }

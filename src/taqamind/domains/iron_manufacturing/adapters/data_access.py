@@ -49,9 +49,11 @@ from taqamind.core.interfaces.training_registry import (
     RecordUsage,
     RecordUsageRole,
 )
-from taqamind.domains.iron_manufacturing.adapters.processing import (
-    _df_to_csv_bytes,
-    _read_artifact_df,
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    df_to_csv_bytes as _df_to_csv_bytes,
+)
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    read_artifact_df as _read_artifact_df,
 )
 from taqamind.domains.iron_manufacturing.adapters.readiness_and_splitting import (
     build_record_scope,

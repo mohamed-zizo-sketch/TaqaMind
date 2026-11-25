@@ -65,6 +65,8 @@ def _make_engineered_artifact(
     )
     reg_res = pipeline.dataset_registry.register(factory_id=factory_id, artifact=raw_art)
     ing = pipeline.ingestion.ingest(context=ctx, artifact=raw_art, contract=contract)
+    assert ing.output_artifact is not None
+    pipeline.dataset_registry.register(factory_id=factory_id, artifact=ing.output_artifact)
     prop = pipeline.column_mapper.propose_mapping(
         context=ctx, artifact=ing.output_artifact, contract=contract
     )
@@ -74,12 +76,18 @@ def _make_engineered_artifact(
     mapped = pipeline.column_mapper.apply_mapping(
         context=ctx, artifact=ing.output_artifact, contract=contract, mapping=approved
     )
+    assert mapped.output_artifact is not None
+    pipeline.dataset_registry.register(factory_id=factory_id, artifact=mapped.output_artifact)
     cleaned = pipeline.data_cleaner.clean(
         context=ctx, artifact=mapped.output_artifact, contract=contract
     )
+    assert cleaned.output_artifact is not None
+    pipeline.dataset_registry.register(factory_id=factory_id, artifact=cleaned.output_artifact)
     eng = pipeline.feature_engineer.engineer(
         context=ctx, artifact=cleaned.output_artifact, contract=contract
     )
+    assert eng.output_artifact is not None
+    pipeline.dataset_registry.register(factory_id=factory_id, artifact=eng.output_artifact)
     return ctx, contract, eng.output_artifact, reg_res
 
 
@@ -124,7 +132,9 @@ def test_identical_features_distinct_business_keys_and_corrected_versions(
     ctx1, contract, art1, _ = _make_engineered_artifact(
         pipeline, FACTORY_A_ID, df, synthetic_confirmation
     )
-    from taqamind.domains.iron_manufacturing.adapters.processing import _read_artifact_df
+    from taqamind.domains.iron_manufacturing.adapters._store import (
+        read_artifact_df as _read_artifact_df,
+    )
 
     eng_df1 = _read_artifact_df(pipeline.dataset_storage, FACTORY_A_ID, art1)
     lin1 = register_dataset_lineage(

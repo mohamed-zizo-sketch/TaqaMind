@@ -45,6 +45,7 @@ from taqamind.core.contracts import (
     ValidationIssue,
     ValidationSeverity,
 )
+from taqamind.core.feature_engineering import DerivedFeatureSpec
 from taqamind.domains.iron_manufacturing.config import DOMAIN_ID
 
 EAF_PROCESS_ID = "eaf_meltshop"
@@ -682,3 +683,46 @@ def engineer_eaf_features(df: pd.DataFrame) -> pd.DataFrame:
         out["planned_expected_dirt_mass_t"] = np.nan
 
     return out
+
+
+def build_eaf_derived_feature_specs() -> tuple[DerivedFeatureSpec, ...]:
+    """Build Shared Core DerivedFeatureSpec entries for EAF meltshop."""
+
+    def _total_charge(df: pd.DataFrame) -> pd.Series:
+        return pd.to_numeric(df["planned_scrap_mass_t"], errors="coerce") + pd.to_numeric(
+            df["planned_dri_mass_t"], errors="coerce"
+        )
+
+    def _dri_share_pct(df: pd.DataFrame) -> pd.Series:
+        dri = pd.to_numeric(df["planned_dri_mass_t"], errors="coerce")
+        total = pd.to_numeric(df["planned_total_metallic_charge_t"], errors="coerce")
+        return (dri / total.where(total > 0.0, np.nan)) * 100.0
+
+    def _charge_to_tap(df: pd.DataFrame) -> pd.Series:
+        total = pd.to_numeric(df["planned_total_metallic_charge_t"], errors="coerce")
+        tap = pd.to_numeric(df["planned_tap_mass_t"], errors="coerce")
+        return total / tap.where(tap > 0.0, np.nan)
+
+    def _flux_per_t(df: pd.DataFrame) -> pd.Series:
+        flux = pd.to_numeric(df["planned_lime_flux_kg"], errors="coerce")
+        total = pd.to_numeric(df["planned_total_metallic_charge_t"], errors="coerce")
+        return flux / total.where(total > 0.0, np.nan)
+
+    def _oxygen_per_t(df: pd.DataFrame) -> pd.Series:
+        oxygen = pd.to_numeric(df["planned_oxygen_nm3"], errors="coerce")
+        total = pd.to_numeric(df["planned_total_metallic_charge_t"], errors="coerce")
+        return oxygen / total.where(total > 0.0, np.nan)
+
+    def _expected_dirt(df: pd.DataFrame) -> pd.Series:
+        scrap = pd.to_numeric(df["planned_scrap_mass_t"], errors="coerce")
+        contam_pct = pd.to_numeric(df["expected_scrap_contaminant_pct"], errors="coerce")
+        return scrap * (contam_pct / 100.0)
+
+    return (
+        DerivedFeatureSpec("planned_total_metallic_charge_t", _total_charge),
+        DerivedFeatureSpec("planned_dri_share_pct", _dri_share_pct),
+        DerivedFeatureSpec("planned_charge_to_tap_ratio", _charge_to_tap),
+        DerivedFeatureSpec("planned_flux_kg_per_t_charge", _flux_per_t),
+        DerivedFeatureSpec("planned_oxygen_nm3_per_t_charge", _oxygen_per_t),
+        DerivedFeatureSpec("planned_expected_dirt_mass_t", _expected_dirt),
+    )

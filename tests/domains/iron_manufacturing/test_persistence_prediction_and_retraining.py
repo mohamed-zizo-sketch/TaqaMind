@@ -16,10 +16,12 @@ from taqamind.core.interfaces import (
     ModelStatus,
     PromotionComparison,
 )
+from taqamind.core.preprocessing import TabularPreprocessor
 from taqamind.domains.iron_manufacturing import (
     IronManufacturingPipeline,
     make_synthetic_confirmation,
 )
+from taqamind.domains.iron_manufacturing.adapters._store import strip_computed_fields
 from taqamind.domains.iron_manufacturing.adapters.modeling import ControlledModelTrainer
 from taqamind.domains.iron_manufacturing.cli import main as cli_main
 from taqamind.domains.iron_manufacturing.common.synthetic import (
@@ -89,6 +91,16 @@ def test_mandatory_train_once_predict_many_zero_retraining(
             "fit_transform",
             side_effect=AssertionError("Pipeline.fit_transform called!"),
         ) as spy_fit_transform,
+        patch.object(
+            TabularPreprocessor,
+            "fit",
+            side_effect=AssertionError("TabularPreprocessor.fit called!"),
+        ) as spy_prep_fit,
+        patch.object(
+            TabularPreprocessor,
+            "fit_transform",
+            side_effect=AssertionError("TabularPreprocessor.fit_transform called!"),
+        ) as spy_prep_fit_transform,
     ):
         # Prediction 1 (fresh unseen batch)
         p1 = pipeline_v1.predict(
@@ -119,6 +131,8 @@ def test_mandatory_train_once_predict_many_zero_retraining(
         assert spy_trainer.call_count == 0
         assert spy_fit.call_count == 0
         assert spy_fit_transform.call_count == 0
+        assert spy_prep_fit.call_count == 0
+        assert spy_prep_fit_transform.call_count == 0
 
     for outcome in (p1, p2, p3):
         assert outcome.status == "succeeded"
@@ -339,9 +353,28 @@ def test_explicit_retraining_reuse_preservation_promotion_and_rollback(
 
 def test_end_to_end_rebar_rolling_and_cli_workflow(
     tmp_path: Path,
+    storage_root: Path,
     rebar_train_csv: Path,
 ) -> None:
-    store = tmp_path / "cli_store"
+    store = storage_root
+    # Also verify recursive ValidationReport computed-field stripping preserves non-report status
+    sample_payload = {
+        "status": "succeeded",
+        "report": {
+            "dataset_id": "rebar_rolling_lot_waste",
+            "contract_version": "1.0.0",
+            "completed_stages": ["semantic_validation"],
+            "issues": [],
+            "status": "ready",
+            "summary": {"total": 0},
+            "has_blocking_issues": False,
+        },
+    }
+    stripped = strip_computed_fields(sample_payload)
+    assert stripped["status"] == "succeeded"
+    assert "status" not in stripped["report"]
+    assert "summary" not in stripped["report"]
+    assert "has_blocking_issues" not in stripped["report"]
     pred_df = generate_synthetic_rebar_dataset(
         n_rows=8,
         seed=55,

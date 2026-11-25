@@ -44,6 +44,7 @@ from taqamind.core.contracts import (
     ValidationIssue,
     ValidationSeverity,
 )
+from taqamind.core.feature_engineering import DerivedFeatureSpec
 from taqamind.domains.iron_manufacturing.config import DOMAIN_ID
 
 SCRAP_YARD_PROCESS_ID = "scrap_yard_reception"
@@ -379,3 +380,19 @@ def engineer_scrap_yard_features(df: pd.DataFrame) -> pd.DataFrame:
     parsed_ts = pd.to_datetime(out["entry_ts"], errors="coerce")
     out["entry_hour_of_day"] = parsed_ts.dt.hour.astype("float64")
     return out
+
+
+def build_scrap_yard_derived_feature_specs() -> tuple[DerivedFeatureSpec, ...]:
+    """Build Shared Core DerivedFeatureSpec entries for scrap yard reception."""
+
+    def _mass_metric_ton(df: pd.DataFrame) -> pd.Series:
+        return pd.to_numeric(df["gross_delivery_mass_kg"], errors="coerce") / 1000.0
+
+    def _entry_hour(df: pd.DataFrame) -> pd.Series:
+        parsed = pd.to_datetime(df["entry_ts"], errors="coerce", utc=True)
+        return parsed.dt.hour.astype("float64")
+
+    return (
+        DerivedFeatureSpec("delivery_mass_metric_ton", _mass_metric_ton),
+        DerivedFeatureSpec("entry_hour_of_day", _entry_hour),
+    )

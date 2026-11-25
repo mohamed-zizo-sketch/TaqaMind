@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID
 
@@ -22,8 +24,10 @@ FACTORY_B_ID = UUID("22222222-2222-4222-8222-222222222222")
 
 
 @pytest.fixture()
-def storage_root(tmp_path: Path) -> Path:
-    return tmp_path / "iron_store"
+def storage_root() -> Iterator[Path]:
+    """Use a short temporary directory so Core LocalModelArtifactStorage stays under MAX_PATH."""
+    with tempfile.TemporaryDirectory(prefix="tm_") as tmp_dir:
+        yield Path(tmp_dir)
 
 
 @pytest.fixture()

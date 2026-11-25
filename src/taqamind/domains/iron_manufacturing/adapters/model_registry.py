@@ -34,9 +34,11 @@ from taqamind.core.interfaces.serialization import (
     serialize_contract,
 )
 from taqamind.core.interfaces.storage import ModelArtifactStorage
-from taqamind.domains.iron_manufacturing.adapters.dataset_registry import (
-    _atomic_write_json,
-    _read_json,
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    atomic_write_json as _atomic_write_json,
+)
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    read_json as _read_json,
 )
 
 

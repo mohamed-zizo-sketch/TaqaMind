@@ -88,6 +88,9 @@ from taqamind.core.interfaces.training_registry import (
     calculate_split_fingerprint,
     calculate_training_configuration_fingerprint,
 )
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    read_artifact_df as _read_artifact_df,
+)
 from taqamind.domains.iron_manufacturing.adapters.data_access import (
     LocalProtectedTestDataProvider,
 )
@@ -96,7 +99,6 @@ from taqamind.domains.iron_manufacturing.adapters.modeling import (
     ProtectedFinalModelEvaluator,
     deserialize_trusted_bundle,
 )
-from taqamind.domains.iron_manufacturing.adapters.processing import _read_artifact_df
 from taqamind.domains.iron_manufacturing.adapters.training_registry import (
     LocalEvaluationRegistry,
     LocalSplitRegistry,
@@ -528,6 +530,7 @@ class IronTrainingService:
         )
         if ingest_res.status != ExecutionStatus.SUCCEEDED or ingest_res.output_artifact is None:
             return _blocked("CSV ingestion failed.", report=ingest_res.report)
+        self._dataset_registry.register(factory_id=factory_id, artifact=ingest_res.output_artifact)
 
         # Stage 2: Profiling
         prof_res = self._profiler.profile(
@@ -564,6 +567,7 @@ class IronTrainingService:
                 report=map_res.report,
                 prof=prof_res,
             )
+        self._dataset_registry.register(factory_id=factory_id, artifact=map_res.output_artifact)
 
         # Stage 4: Semantic Validation
         sem_res = self._semantic_validator.validate(
@@ -580,14 +584,26 @@ class IronTrainingService:
         clean_res = self._data_cleaner.clean(
             context=context, artifact=map_res.output_artifact, contract=contract
         )
-        assert clean_res.output_artifact is not None
+        if clean_res.status != ExecutionStatus.SUCCEEDED or clean_res.output_artifact is None:
+            return _blocked(
+                "Deterministic cleaning blocked dataset.",
+                report=clean_res.report,
+                prof=prof_res,
+            )
+        self._dataset_registry.register(factory_id=factory_id, artifact=clean_res.output_artifact)
 
         # Stage 6: Deterministic Feature Engineering
         eng_res = self._feature_engineer.engineer(
             context=context, artifact=clean_res.output_artifact, contract=contract
         )
-        assert eng_res.output_artifact is not None
+        if eng_res.status != ExecutionStatus.SUCCEEDED or eng_res.output_artifact is None:
+            return _blocked(
+                "Deterministic feature engineering blocked dataset.",
+                report=eng_res.report,
+                prof=prof_res,
+            )
         engineered_artifact = eng_res.output_artifact
+        self._dataset_registry.register(factory_id=factory_id, artifact=engineered_artifact)
 
         # Stage 7: Record Lineage & Membership Registration
         eng_df = _read_artifact_df(self._dataset_storage, factory_id, engineered_artifact)

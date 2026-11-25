@@ -42,6 +42,7 @@ from taqamind.core.contracts import (
     ValidationIssue,
     ValidationSeverity,
 )
+from taqamind.core.feature_engineering import DerivedFeatureSpec
 from taqamind.domains.iron_manufacturing.config import DOMAIN_ID
 
 REBAR_PROCESS_ID = "rebar_hot_rolling"
@@ -493,3 +494,29 @@ def engineer_rebar_features(df: pd.DataFrame) -> pd.DataFrame:
         out["is_multi_slit_flag"] = np.nan
 
     return out
+
+
+def build_rebar_derived_feature_specs() -> tuple[DerivedFeatureSpec, ...]:
+    """Build Shared Core DerivedFeatureSpec entries for rebar hot rolling."""
+
+    def _billet_kg(df: pd.DataFrame) -> pd.Series:
+        return pd.to_numeric(df["planned_input_billet_mass_t"], errors="coerce") * 1000.0
+
+    def _single_billet_t(df: pd.DataFrame) -> pd.Series:
+        billet_t = pd.to_numeric(df["planned_input_billet_mass_t"], errors="coerce")
+        count = pd.to_numeric(df["planned_billet_count"], errors="coerce")
+        return billet_t / count.where(count > 0.0, np.nan)
+
+    def _multi_slit(df: pd.DataFrame) -> pd.Series:
+        strands = pd.to_numeric(df["slitting_strands_count"], errors="coerce")
+        return pd.Series(
+            np.where(strands.notna(), (strands >= 2).astype(float), np.nan),
+            index=df.index,
+            dtype="float64",
+        )
+
+    return (
+        DerivedFeatureSpec("planned_input_billet_mass_kg", _billet_kg),
+        DerivedFeatureSpec("planned_single_billet_mass_t", _single_billet_t),
+        DerivedFeatureSpec("is_multi_slit_flag", _multi_slit),
+    )

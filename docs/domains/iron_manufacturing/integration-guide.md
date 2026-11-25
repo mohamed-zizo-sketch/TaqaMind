@@ -67,9 +67,10 @@ Under `--storage-root` (default `artifacts/iron_manufacturing/store/`, gitignore
 - `partitions/{factory_id}/{split_id}/{train|validation|test}_{id}.csv` — physically separated split partitions.
 - `registries/{datasets,lineage,splits,usage,training,evaluations,models}/` — atomic JSON registries.
 
-## 5. Replacing Temporary Adapters with Shared Core Engines
-`IronTrainingService` and `IronPredictionService` depend exclusively on Shared Core `Protocol` types (`DatasetArtifactStorage`, `ModelArtifactStorage`, `DatasetRegistry`, `RecordLineageRegistry`, `SplitRegistry`, `TrainingRegistry`, `EvaluationRegistry`, `ModelRegistry`, `DevelopmentDataProvider`, `ProtectedTestDataProvider`, `ActiveModelProvider`, `DataIngestion`, `DataProfiler`, `ColumnMapper`, `SemanticValidator`, `DataCleaner`, `FeatureEngineer`, `TrainingReadinessChecker`, `DatasetSplitter`, `LeakageValidator`, `ModelTrainer`, `PredictionEngine`).
-When Shared Core concrete engines are merged, inject them directly into `IronTrainingService` / `IronPredictionService` (or swap bindings inside `IronManufacturingPipeline.__init__`) with zero changes to `processes/` or `domain.py`.
+## 5. Shared Core P1.1–P1.5 Direct Wiring & Replacing Remaining P1.6–P1.8 Adapters
+Shared Core P1.1–P1.5 concrete engines (`LocalDatasetArtifactStorage`, `LocalModelArtifactStorage`, `LocalDatasetRegistry`, `LocalRecordLineageRegistry`, `CsvDataIngestion`, `PandasDataProfiler`, `DeterministicColumnMapper`, `ContractSemanticValidator`, `ContractDataCleaner`, `DeterministicFeatureEngineer`, and `TabularPreprocessor`) are wired directly from `taqamind.core.*`.
+`IronTrainingService` and `IronPredictionService` depend exclusively on Shared Core `Protocol` types for the remaining P1.6–P1.8 gap adapters (`SplitRegistry`, `RecordUsageRegistry`, `TrainingRegistry`, `EvaluationRegistry`, `ModelRegistry`, `DevelopmentDataProvider`, `ProtectedTestDataProvider`, `ActiveModelProvider`, `TrainingReadinessChecker`, `DatasetSplitter`, `LeakageValidator`, `ModelTrainer`, `PredictionEngine`).
+When Shared Core P1.6–P1.8 concrete engines are merged, inject them directly into `IronTrainingService` / `IronPredictionService` (or swap bindings inside `IronManufacturingPipeline.__init__`) with zero changes to `processes/` or `domain.py`.
 
 ## 6. Error Conventions & Dependencies
 - Contract/lifecycle violations raise `ValueError` or Shared Core exceptions (`ArtifactIntegrityError`, `ArtifactConflictError`, `ArtifactScopeError`, `RegistryNotFoundError`, `RegistryConflictError`, `RegistryScopeError`, `DataAccessDeniedError`).

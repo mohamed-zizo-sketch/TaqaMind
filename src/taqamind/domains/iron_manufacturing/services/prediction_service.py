@@ -48,7 +48,9 @@ from taqamind.core.interfaces.processing import (
 from taqamind.core.interfaces.processing_models import ApprovedMapping
 from taqamind.core.interfaces.results import ExecutionStatus
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
-from taqamind.domains.iron_manufacturing.adapters.processing import _read_artifact_df
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    read_artifact_df as _read_artifact_df,
+)
 from taqamind.domains.iron_manufacturing.common.hashing import calculate_contract_sha256
 from taqamind.domains.iron_manufacturing.common.normalization import safe_export_csv
 from taqamind.domains.iron_manufacturing.services.lineage_service import (
@@ -234,6 +236,7 @@ class IronPredictionService:
                 blocked_reason="Prediction CSV failed ingestion validation.",
                 output_csv_path=None,
             )
+        self._dataset_registry.register(factory_id=factory_id, artifact=ingest_res.output_artifact)
 
         proposal = self._column_mapper.propose_mapping(
             context=context,
@@ -286,6 +289,7 @@ class IronPredictionService:
                 blocked_reason="Prediction CSV failed column mapping / unit conversion.",
                 output_csv_path=None,
             )
+        self._dataset_registry.register(factory_id=factory_id, artifact=map_res.output_artifact)
 
         sem_res = self._semantic_validator.validate(
             context=context,
@@ -312,14 +316,42 @@ class IronPredictionService:
             artifact=map_res.output_artifact,
             contract=contract,
         )
-        assert clean_res.output_artifact is not None
+        if clean_res.status != ExecutionStatus.SUCCEEDED or clean_res.output_artifact is None:
+            return PredictionOutcome(
+                status="blocked",
+                execution_id=context.execution_id,
+                model_version_id=active_entry.version.model_version_id,
+                model_version_number=active_entry.version.version_number,
+                model_artifact_sha256=active_entry.version.artifact.content_sha256,
+                batch_result=None,
+                validation_report=clean_res.report,
+                previously_known_record_count=0,
+                new_record_count=0,
+                blocked_reason="Prediction CSV failed deterministic cleaning.",
+                output_csv_path=None,
+            )
+        self._dataset_registry.register(factory_id=factory_id, artifact=clean_res.output_artifact)
 
         eng_res = self._feature_engineer.engineer(
             context=context,
             artifact=clean_res.output_artifact,
             contract=contract,
         )
-        assert eng_res.output_artifact is not None
+        if eng_res.status != ExecutionStatus.SUCCEEDED or eng_res.output_artifact is None:
+            return PredictionOutcome(
+                status="blocked",
+                execution_id=context.execution_id,
+                model_version_id=active_entry.version.model_version_id,
+                model_version_number=active_entry.version.version_number,
+                model_artifact_sha256=active_entry.version.artifact.content_sha256,
+                batch_result=None,
+                validation_report=eng_res.report,
+                previously_known_record_count=0,
+                new_record_count=0,
+                blocked_reason="Prediction CSV failed feature engineering.",
+                output_csv_path=None,
+            )
+        self._dataset_registry.register(factory_id=factory_id, artifact=eng_res.output_artifact)
 
         # 5. Match record identities via trusted business keys (distinguishing old vs new rows)
         eng_df = _read_artifact_df(self._dataset_storage, factory_id, eng_res.output_artifact)

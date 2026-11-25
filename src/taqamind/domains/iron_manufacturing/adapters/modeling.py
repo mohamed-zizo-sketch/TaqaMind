@@ -28,21 +28,17 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import (
     HistGradientBoostingClassifier,
     HistGradientBoostingRegressor,
     RandomForestRegressor,
 )
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from xgboost import XGBRegressor
 
-from taqamind.core.contracts import DatasetContract, DataType
+from taqamind.core.contracts import DatasetContract
 from taqamind.core.interfaces.artifacts import calculate_bytes_sha256
 from taqamind.core.interfaces.candidates import (
     CandidateModelReference,
@@ -94,7 +90,10 @@ from taqamind.core.interfaces.training_registry import (
     EvaluationRegistry,
     EvaluationReservation,
 )
-from taqamind.domains.iron_manufacturing.adapters.processing import _read_artifact_df
+from taqamind.core.preprocessing import TabularPreprocessor
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    read_artifact_df as _read_artifact_df,
+)
 from taqamind.domains.iron_manufacturing.adapters.readiness_and_splitting import (
     build_record_scope,
 )
@@ -262,43 +261,32 @@ def compute_regression_metrics(
     return tuple(results)
 
 
-def _build_preprocessor(
-    contract: DatasetContract,
-    feature_names: tuple[str, ...],
-    *,
-    scale_numeric: bool,
-) -> ColumnTransformer:
-    numeric_cols: list[str] = []
-    categorical_cols: list[str] = []
-    for name in feature_names:
-        feat = contract.get_feature(name)
-        if feat.data_type in {DataType.FLOAT, DataType.INTEGER}:
-            numeric_cols.append(name)
+class _TabularModelWrapper:
+    """Pair Shared Core TabularPreprocessor (fit train-only) with a regression estimator."""
+
+    def __init__(
+        self,
+        *,
+        preprocessor: TabularPreprocessor | None,
+        estimator: BaseEstimator,
+    ) -> None:
+        self.preprocessor = preprocessor
+        self.estimator = estimator
+
+    def fit(self, X_train: pd.DataFrame, y_train: np.ndarray) -> _TabularModelWrapper:
+        if self.preprocessor is not None:
+            transformed = self.preprocessor.fit_transform(X_train)
+            self.estimator.fit(transformed, y_train)
         else:
-            categorical_cols.append(name)
+            self.estimator.fit(X_train, y_train)
+        return self
 
-    transformers: list[tuple[str, Any, list[str]]] = []
-    if numeric_cols:
-        num_steps: list[tuple[str, Any]] = [("imputer", SimpleImputer(strategy="median"))]
-        if scale_numeric:
-            num_steps.append(("scaler", StandardScaler()))
-        transformers.append(("num", Pipeline(num_steps), numeric_cols))
-
-    if categorical_cols:
-        cat_steps: list[tuple[str, Any]] = [
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            (
-                "encoder",
-                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
-            ),
-        ]
-        transformers.append(("cat", Pipeline(cat_steps), categorical_cols))
-
-    return ColumnTransformer(
-        transformers=transformers,
-        remainder="drop",
-        verbose_feature_names_out=False,
-    )
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        if self.preprocessor is not None:
+            # Strictly transform() only — NEVER refit during evaluation or prediction
+            transformed = self.preprocessor.transform(X)
+            return np.asarray(self.estimator.predict(transformed), dtype=float)
+        return np.asarray(self.estimator.predict(X), dtype=float)
 
 
 def _build_candidate_pipeline(
@@ -306,7 +294,8 @@ def _build_candidate_pipeline(
     contract: DatasetContract,
     feature_names: tuple[str, ...],
     random_seed: int,
-) -> Any:
+) -> _TabularModelWrapper:
+    _ = feature_names  # Ordered predictors resolved canonically by TabularPreprocessor
     allowed = ALLOWLISTED_PARAMS[candidate.family]
     params = candidate.parameter_map
     unknown = set(params) - allowed
@@ -320,99 +309,81 @@ def _build_candidate_pipeline(
         if contract.target.derived_rate is None:
             raise ValueError("Historical rate baseline requires a target derived_rate.")
         denom_col = str(params.get("denominator_column", contract.target.derived_rate.denominator))
-        return HistoricalRateRegressor(denominator_column=denom_col)
+        return _TabularModelWrapper(
+            preprocessor=None,
+            estimator=HistoricalRateRegressor(denominator_column=denom_col),
+        )
 
     if candidate.family == ModelFamily.DUMMY_REGRESSOR:
         strategy = str(params.get("strategy", "median"))
-        est: BaseEstimator = DummyRegressor(strategy=strategy)
-        return Pipeline(
-            [
-                ("preprocessor", _build_preprocessor(contract, feature_names, scale_numeric=False)),
-                ("estimator", est),
-            ]
+        return _TabularModelWrapper(
+            preprocessor=TabularPreprocessor(contract, scale_numeric=False),
+            estimator=DummyRegressor(strategy=strategy),
         )
 
     if candidate.family == ModelFamily.RIDGE:
-        est = Ridge(alpha=float(params.get("alpha", 1.0)))
-        return Pipeline(
-            [
-                ("preprocessor", _build_preprocessor(contract, feature_names, scale_numeric=True)),
-                ("estimator", est),
-            ]
+        return _TabularModelWrapper(
+            preprocessor=TabularPreprocessor(contract, scale_numeric=True),
+            estimator=Ridge(alpha=float(params.get("alpha", 1.0))),
         )
 
     if candidate.family == ModelFamily.ELASTIC_NET:
-        est = ElasticNet(
-            alpha=float(params.get("alpha", 0.1)),
-            l1_ratio=float(params.get("l1_ratio", 0.5)),
-            max_iter=int(params.get("max_iter", 2000)),
-            random_state=random_seed,
-        )
-        return Pipeline(
-            [
-                ("preprocessor", _build_preprocessor(contract, feature_names, scale_numeric=True)),
-                ("estimator", est),
-            ]
+        return _TabularModelWrapper(
+            preprocessor=TabularPreprocessor(contract, scale_numeric=True),
+            estimator=ElasticNet(
+                alpha=float(params.get("alpha", 0.1)),
+                l1_ratio=float(params.get("l1_ratio", 0.5)),
+                max_iter=int(params.get("max_iter", 2000)),
+                random_state=random_seed,
+            ),
         )
 
     if candidate.family == ModelFamily.RANDOM_FOREST:
-        est = RandomForestRegressor(
-            n_estimators=int(params.get("n_estimators", 80)),
-            max_depth=int(params["max_depth"]) if params.get("max_depth") is not None else 10,
-            min_samples_leaf=int(params.get("min_samples_leaf", 2)),
-            random_state=random_seed,
-            n_jobs=1,
-        )
-        return Pipeline(
-            [
-                ("preprocessor", _build_preprocessor(contract, feature_names, scale_numeric=False)),
-                ("estimator", est),
-            ]
+        return _TabularModelWrapper(
+            preprocessor=TabularPreprocessor(contract, scale_numeric=False),
+            estimator=RandomForestRegressor(
+                n_estimators=int(params.get("n_estimators", 80)),
+                max_depth=int(params["max_depth"]) if params.get("max_depth") is not None else 10,
+                min_samples_leaf=int(params.get("min_samples_leaf", 2)),
+                random_state=random_seed,
+                n_jobs=1,
+            ),
         )
 
     if candidate.family == ModelFamily.HIST_GRADIENT_BOOSTING:
-        est = HistGradientBoostingRegressor(
-            max_iter=int(params.get("max_iter", 100)),
-            max_depth=int(params["max_depth"]) if params.get("max_depth") is not None else 5,
-            learning_rate=float(params.get("learning_rate", 0.08)),
-            min_samples_leaf=int(params.get("min_samples_leaf", 5)),
-            random_state=random_seed,
-        )
-        return Pipeline(
-            [
-                ("preprocessor", _build_preprocessor(contract, feature_names, scale_numeric=False)),
-                ("estimator", est),
-            ]
+        return _TabularModelWrapper(
+            preprocessor=TabularPreprocessor(contract, scale_numeric=False),
+            estimator=HistGradientBoostingRegressor(
+                max_iter=int(params.get("max_iter", 100)),
+                max_depth=int(params["max_depth"]) if params.get("max_depth") is not None else 5,
+                learning_rate=float(params.get("learning_rate", 0.08)),
+                min_samples_leaf=int(params.get("min_samples_leaf", 5)),
+                random_state=random_seed,
+            ),
         )
 
     if candidate.family == ModelFamily.XGBOOST:
-        est = XGBRegressor(
-            n_estimators=int(params.get("n_estimators", 100)),
-            max_depth=int(params.get("max_depth", 4)),
-            learning_rate=float(params.get("learning_rate", 0.08)),
-            subsample=float(params.get("subsample", 0.85)),
-            colsample_bytree=float(params.get("colsample_bytree", 0.85)),
-            random_state=random_seed,
-            n_jobs=1,
-        )
-        return Pipeline(
-            [
-                ("preprocessor", _build_preprocessor(contract, feature_names, scale_numeric=False)),
-                ("estimator", est),
-            ]
+        return _TabularModelWrapper(
+            preprocessor=TabularPreprocessor(contract, scale_numeric=False),
+            estimator=XGBRegressor(
+                n_estimators=int(params.get("n_estimators", 100)),
+                max_depth=int(params.get("max_depth", 4)),
+                learning_rate=float(params.get("learning_rate", 0.08)),
+                subsample=float(params.get("subsample", 0.85)),
+                colsample_bytree=float(params.get("colsample_bytree", 0.85)),
+                random_state=random_seed,
+                n_jobs=1,
+            ),
         )
 
     if candidate.family == ModelFamily.HURDLE_REGRESSION:
-        est = TwoStageHurdleRegressor(
-            max_depth=int(params.get("max_depth", 4)),
-            learning_rate=float(params.get("learning_rate", 0.08)),
-            random_state=random_seed,
-        )
-        return Pipeline(
-            [
-                ("preprocessor", _build_preprocessor(contract, feature_names, scale_numeric=False)),
-                ("estimator", est),
-            ]
+        return _TabularModelWrapper(
+            preprocessor=TabularPreprocessor(contract, scale_numeric=False),
+            estimator=TwoStageHurdleRegressor(
+                max_depth=int(params.get("max_depth", 4)),
+                learning_rate=float(params.get("learning_rate", 0.08)),
+                random_state=random_seed,
+            ),
         )
 
     raise ValueError(f"Unsupported model family: {candidate.family}")

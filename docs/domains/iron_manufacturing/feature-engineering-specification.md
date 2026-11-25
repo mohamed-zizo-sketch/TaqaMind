@@ -1,8 +1,8 @@
 # Feature Engineering Specification — `iron_manufacturing`
 
 ## 1. Boundary Between Deterministic & Learned Transformations
-- **Pre-Split (Row-Level Deterministic Only — `LocalFeatureEngineer`):** Only pure row-wise physical/algebraic transformations over confirmed pre-production (`<= t0`) inputs. Zero dataset-wide aggregations, zero target statistics, zero invented densities.
-- **Post-Split (Train-Fold Fitted Only — `ControlledModelTrainer`):** `SimpleImputer(strategy="median")` for numerics, `SimpleImputer(strategy="most_frequent")` + `OneHotEncoder(handle_unknown="ignore")` for categoricals, and `StandardScaler()` for linear models (`Ridge`, `ElasticNet`). All fitted strictly on the `TRAIN` partition and persisted inside the single `sklearn.pipeline.Pipeline` bundle.
+- **Pre-Split (Row-Level Deterministic Only — Shared Core `DeterministicFeatureEngineer` + `DerivedFeatureSpec`):** Only pure row-wise physical/algebraic transformations over confirmed pre-production (`<= t0`) inputs. Zero dataset-wide aggregations, zero target statistics, zero invented densities.
+- **Post-Split (Train-Fold Fitted Only — Shared Core `TabularPreprocessor` inside `ControlledModelTrainer`):** `SimpleImputer(strategy="median")` for numerics, `SimpleImputer(strategy="most_frequent")` + `OneHotEncoder(handle_unknown="ignore")` for categoricals, and `StandardScaler()` for linear models (`Ridge`, `ElasticNet`). Fitted strictly on the `TRAIN` partition (`fit_transform(train_df)`) and invoked via `.transform()` only during validation, protected test evaluation, and inference.
 
 ## 2. Deterministic Derived Features by Process
 

@@ -16,12 +16,14 @@ from taqamind.core.contracts import (
     TargetConfirmation,
     ValidationIssue,
 )
+from taqamind.core.feature_engineering import DerivedFeatureSpec
 from taqamind.core.registry import DomainRegistry
 from taqamind.domains.iron_manufacturing.config import DOMAIN_ID, DOMAIN_VERSION
 from taqamind.domains.iron_manufacturing.processes.eaf_meltshop import (
     EAF_FORBIDDEN_PREDICTOR_NAMES,
     EAF_PROCESS_ID,
     EAF_TASK_ID,
+    build_eaf_derived_feature_specs,
     build_eaf_meltshop_process,
     engineer_eaf_features,
     validate_eaf_physical_rules,
@@ -30,6 +32,7 @@ from taqamind.domains.iron_manufacturing.processes.rebar_hot_rolling import (
     REBAR_FORBIDDEN_PREDICTOR_NAMES,
     REBAR_PROCESS_ID,
     REBAR_TASK_ID,
+    build_rebar_derived_feature_specs,
     build_rebar_hot_rolling_process,
     engineer_rebar_features,
     validate_rebar_physical_rules,
@@ -38,6 +41,7 @@ from taqamind.domains.iron_manufacturing.processes.scrap_yard_reception import (
     SCRAP_YARD_FORBIDDEN_PREDICTOR_NAMES,
     SCRAP_YARD_PROCESS_ID,
     SCRAP_YARD_TASK_ID,
+    build_scrap_yard_derived_feature_specs,
     build_scrap_yard_process,
     engineer_scrap_yard_features,
     validate_scrap_yard_physical_rules,
@@ -59,6 +63,12 @@ PROCESS_FEATURE_ENGINEERS: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
     EAF_PROCESS_ID: engineer_eaf_features,
     REBAR_PROCESS_ID: engineer_rebar_features,
     SCRAP_YARD_PROCESS_ID: engineer_scrap_yard_features,
+}
+
+PROCESS_DERIVED_FEATURE_SPECS: dict[str, tuple[DerivedFeatureSpec, ...]] = {
+    EAF_PROCESS_ID: build_eaf_derived_feature_specs(),
+    REBAR_PROCESS_ID: build_rebar_derived_feature_specs(),
+    SCRAP_YARD_PROCESS_ID: build_scrap_yard_derived_feature_specs(),
 }
 
 PROCESS_FORBIDDEN_PREDICTORS: dict[str, frozenset[str]] = {

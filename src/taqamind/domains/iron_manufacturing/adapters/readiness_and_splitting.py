@@ -56,7 +56,9 @@ from taqamind.core.interfaces.training_registry import (
     RecordUsageRegistry,
     find_previously_exposed_test_records,
 )
-from taqamind.domains.iron_manufacturing.adapters.processing import _read_artifact_df
+from taqamind.domains.iron_manufacturing.adapters._store import (
+    read_artifact_df as _read_artifact_df,
+)
 from taqamind.domains.iron_manufacturing.config import (
     DEFAULT_MIN_POSITIVE_TARGET_ROWS,
     DEFAULT_MIN_TEST_ROWS,

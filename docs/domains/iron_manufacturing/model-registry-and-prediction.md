@@ -1,7 +1,7 @@
 # Model Registry, Persistence & Zero-Retraining Prediction — `iron_manufacturing`
 
 ## 1. Local Model Bundle & Registry Structure
-- **Bundle Format (`taqamind_iron_manufacturing_bundle_v1`):** Joblib-compressed dictionary storing exact `feature_names` (ordered), `target_name`, `target_unit`, `candidate_family`, runtime `dependency_versions`, and the fitted `sklearn.pipeline.Pipeline` (preprocessing + estimator together).
+- **Bundle Format (`taqamind_iron_manufacturing_bundle_v1`):** Joblib-compressed dictionary storing exact `feature_names` (ordered), `target_name`, `target_unit`, `candidate_family`, runtime `dependency_versions`, and the fitted `_TabularModelWrapper` pairing Shared Core `TabularPreprocessor` (fit train-only; `.transform()` only during evaluation and prediction) with the regression estimator.
 - **Storage Integrity (`LocalModelArtifactStorage`):** Stored immutably under `factories/{factory_id}/training/{execution_id}/candidates/{candidate_id}/{artifact_id}.bundle` with full SHA-256 and byte-size verification before every read. Corrupted bytes raise `ArtifactIntegrityError`. Only internally registered trusted bundles are ever deserialized.
 - **Registry Lifecycle (`LocalModelRegistry`):**
   - States: `CANDIDATE` → `VALIDATED` or `REJECTED` → `ACTIVE` → `ARCHIVED`.

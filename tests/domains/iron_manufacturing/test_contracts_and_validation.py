@@ -8,6 +8,8 @@ import pandas as pd
 import pytest
 
 from taqamind.core.contracts import ConfirmationStatus, DatasetPurpose
+from taqamind.core.feature_engineering import DeterministicFeatureEngineer
+from taqamind.core.ingestion import CsvDataIngestion
 from taqamind.core.interfaces import (
     ActiveModelProvider,
     ColumnMapper,
@@ -33,7 +35,15 @@ from taqamind.core.interfaces import (
     TrainingReadinessChecker,
     TrainingRegistry,
 )
-from taqamind.core.registry import DomainRegistry
+from taqamind.core.lineage import LocalRecordLineageRegistry
+from taqamind.core.preprocessing import ContractDataCleaner
+from taqamind.core.profiling import PandasDataProfiler
+from taqamind.core.registry import (
+    DomainRegistry,
+    LocalDatasetArtifactStorage,
+    LocalDatasetRegistry,
+    LocalModelArtifactStorage,
+)
 from taqamind.domains.iron_manufacturing import (
     DOMAIN_ID,
     DOMAIN_VERSION,
@@ -102,6 +112,19 @@ def test_all_local_adapters_satisfy_shared_core_protocols(
     assert isinstance(pipeline.leakage_validator, LeakageValidator)
     assert isinstance(pipeline.model_trainer, ModelTrainer)
     assert isinstance(pipeline.prediction_engine, PredictionEngine)
+
+    # Verify real Shared Core P1.1-P1.5 concrete engines are wired directly
+    assert isinstance(pipeline.dataset_storage, LocalDatasetArtifactStorage)
+    assert isinstance(pipeline.model_storage, LocalModelArtifactStorage)
+    assert isinstance(pipeline.dataset_registry, LocalDatasetRegistry)
+    assert isinstance(pipeline.lineage_registry, LocalRecordLineageRegistry)
+    assert isinstance(pipeline.ingestion, CsvDataIngestion)
+    assert isinstance(pipeline.profiler, PandasDataProfiler)
+    assert isinstance(pipeline.data_cleaner, ContractDataCleaner)
+    for proc in ("eaf_meltshop", "rebar_hot_rolling", "scrap_yard_reception"):
+        assert isinstance(
+            pipeline.feature_engineer.get_engineer(proc), DeterministicFeatureEngineer
+        )
 
 
 def test_templates_separate_training_and_prediction_schemas(tmp_path: Path) -> None:
@@ -208,7 +231,10 @@ def test_missing_training_target_rejected_and_prediction_without_target_passes(
         purpose=DatasetPurpose.TRAINING,
     )
     assert nan_val["status"] == "blocked"
-    assert any(i["code"] == "MISSING_TARGET_VALUES" for i in nan_val["issues"])
+    assert any(
+        i["code"] == "MISSING_VALUES_REJECTED" and "metallic_waste_loss_t" in i["columns"]
+        for i in nan_val["issues"]
+    )
 
 
 def test_post_production_predictor_rejected_and_zero_waste_preserved(
