@@ -1,0 +1,253 @@
+{
+  "domain_id": "iron_manufacturing",
+  "domain_version": "1.0.0",
+  "git_branch": "feature/iron_manufacturing/pipeline-integration",
+  "baseline_core_commit_sha": "d9cdb911d094f49c887d223144746b2acad462c5",
+  "supported_processes": [
+    {
+      "process_id": "eaf_meltshop",
+      "version": "1.0.0",
+      "granularity": "one_eaf_heat",
+      "business_keys": ["heat_id"],
+      "grouping_columns": ["production_order_id"],
+      "time_column": "planned_start_ts",
+      "tasks": [
+        {
+          "task_id": "eaf_metallic_waste_loss_prediction",
+          "version": "1.0.0",
+          "module": "waste_management",
+          "task_type": "regression",
+          "dataset_id": "eaf_meltshop_heat_waste",
+          "dataset_contract_version": "1.0.0",
+          "target_name": "metallic_waste_loss_t",
+          "target_unit": "metric_ton",
+          "derived_rate_name": "metallic_waste_rate_pct",
+          "default_confirmation_status": "unconfirmed"
+        }
+      ]
+    },
+    {
+      "process_id": "rebar_hot_rolling",
+      "version": "1.0.0",
+      "granularity": "one_rolling_campaign_lot",
+      "business_keys": ["rolling_lot_id"],
+      "grouping_columns": ["production_order_id"],
+      "time_column": "planned_start_ts",
+      "tasks": [
+        {
+          "task_id": "rebar_rolling_waste_quantity_prediction",
+          "version": "1.0.0",
+          "module": "waste_management",
+          "task_type": "regression",
+          "dataset_id": "rebar_rolling_lot_waste",
+          "dataset_contract_version": "1.0.0",
+          "target_name": "total_rolling_waste_kg",
+          "target_unit": "kg",
+          "derived_rate_name": "rolling_waste_rate_pct",
+          "default_confirmation_status": "unconfirmed"
+        }
+      ]
+    },
+    {
+      "process_id": "scrap_yard_reception",
+      "version": "1.0.0",
+      "granularity": "one_scrap_delivery_vehicle",
+      "business_keys": ["scrap_delivery_id"],
+      "grouping_columns": ["supplier_group_id"],
+      "time_column": "entry_ts",
+      "tasks": [
+        {
+          "task_id": "scrap_delivery_contaminant_prediction",
+          "version": "1.0.0",
+          "module": "waste_management",
+          "task_type": "regression",
+          "dataset_id": "scrap_yard_delivery_contaminant",
+          "dataset_contract_version": "1.0.0",
+          "target_name": "total_contaminant_kg",
+          "target_unit": "kg",
+          "derived_rate_name": "contaminant_rate_pct",
+          "default_confirmation_status": "unconfirmed"
+        }
+      ]
+    }
+  ],
+  "quarantined_processes": [
+    {
+      "process_id": "ladle_furnace_secondary_metallurgy",
+      "reason": "Supplied Yandex LF dataset lacks waste target, steel tonnage, pre-production predictors, verified units, and commercial license."
+    }
+  ],
+  "public_entrypoints": {
+    "domain_registration": "taqamind.domains.iron_manufacturing:register_iron_manufacturing",
+    "domain_builder": "taqamind.domains.iron_manufacturing:build_iron_manufacturing_domain",
+    "task_lookup": "taqamind.domains.iron_manufacturing:get_iron_task",
+    "contract_lookup": "taqamind.domains.iron_manufacturing:get_iron_dataset_contract",
+    "pipeline_facade": "taqamind.domains.iron_manufacturing:IronManufacturingPipeline",
+    "template_generator": "taqamind.domains.iron_manufacturing:generate_all_contracts_and_templates",
+    "cli_module": "python -m taqamind.domains.iron_manufacturing.cli"
+  },
+  "required_dependencies": [
+    "numpy>=2.2,<3",
+    "pandas>=2.2.3,<3",
+    "pydantic>=2.10,<3",
+    "PyYAML>=6.0.2,<7",
+    "scikit-learn>=1.6,<2",
+    "xgboost>=3.0,<4",
+    "joblib>=1.4,<2",
+    "matplotlib>=3.10,<4",
+    "seaborn>=0.13,<1"
+  ],
+  "root_dependencies_modified": false,
+  "shared_core_modified": false,
+  "artifact_locations": {
+    "contracts_and_templates": "contracts/domains/iron_manufacturing/",
+    "research_scripts": "research/iron_manufacturing/",
+    "notebooks": "notebooks/iron_manufacturing/",
+    "documentation": "docs/domains/iron_manufacturing/",
+    "tests": "tests/domains/iron_manufacturing/",
+    "local_raw_data_gitignored": "data/iron_manufacturing/raw/",
+    "local_store_gitignored": "artifacts/iron_manufacturing/store/",
+    "local_reports_gitignored": "reports/iron_manufacturing/"
+  },
+  "tests": [
+    "tests/domains/iron_manufacturing/test_contracts_and_validation.py",
+    "tests/domains/iron_manufacturing/test_lineage_and_isolation.py",
+    "tests/domains/iron_manufacturing/test_ml_splitting_and_leakage.py",
+    "tests/domains/iron_manufacturing/test_persistence_prediction_and_retraining.py"
+  ],
+  "temporary_adapters": [
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/storage.py",
+      "symbols": ["LocalDatasetArtifactStorage", "LocalModelArtifactStorage"],
+      "protocols": ["DatasetArtifactStorage", "ModelArtifactStorage"],
+      "proposed_core_destination": "taqamind.core.storage.local"
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/dataset_registry.py",
+      "symbols": ["LocalDatasetRegistry", "LocalRecordLineageRegistry"],
+      "protocols": ["DatasetRegistry", "RecordLineageRegistry"],
+      "proposed_core_destination": "taqamind.core.lineage.registry"
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/processing.py",
+      "symbols": [
+        "LocalCsvDataIngestion",
+        "LocalDataProfiler",
+        "LocalColumnMapper",
+        "LocalSemanticValidator",
+        "LocalDataCleaner",
+        "LocalFeatureEngineer"
+      ],
+      "protocols": [
+        "DataIngestion",
+        "DataProfiler",
+        "ColumnMapper",
+        "SemanticValidator",
+        "DataCleaner",
+        "FeatureEngineer"
+      ],
+      "proposed_core_destination": "taqamind.core.{ingestion,profiling,mapping,validation,preprocessing,feature_engineering}"
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/readiness_and_splitting.py",
+      "symbols": [
+        "LocalTrainingReadinessChecker",
+        "LocalDatasetSplitter",
+        "LocalLeakageValidator"
+      ],
+      "protocols": [
+        "TrainingReadinessChecker",
+        "DatasetSplitter",
+        "LeakageValidator"
+      ],
+      "proposed_core_destination": "taqamind.core.{readiness,splitting}"
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/training_registry.py",
+      "symbols": [
+        "LocalSplitRegistry",
+        "LocalRecordUsageRegistry",
+        "LocalTrainingRegistry",
+        "LocalEvaluationRegistry"
+      ],
+      "protocols": [
+        "SplitRegistry",
+        "RecordUsageRegistry",
+        "TrainingRegistry",
+        "EvaluationRegistry"
+      ],
+      "proposed_core_destination": "taqamind.core.registry.ml_governance"
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/data_access.py",
+      "symbols": [
+        "LocalDevelopmentDataProvider",
+        "LocalProtectedTestDataProvider",
+        "LocalActiveModelProvider"
+      ],
+      "protocols": [
+        "DevelopmentDataProvider",
+        "ProtectedTestDataProvider",
+        "ActiveModelProvider"
+      ],
+      "proposed_core_destination": "taqamind.core.data_access.local"
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/modeling.py",
+      "symbols": [
+        "ControlledModelTrainer",
+        "ProtectedFinalModelEvaluator",
+        "ZeroRetrainingPredictionEngine"
+      ],
+      "protocols": [
+        "ModelTrainer",
+        "FinalModelEvaluator",
+        "PredictionEngine"
+      ],
+      "proposed_core_destination": "taqamind.core.{automl,evaluation,prediction}"
+    },
+    {
+      "path": "src/taqamind/domains/iron_manufacturing/adapters/model_registry.py",
+      "symbols": ["LocalModelRegistry"],
+      "protocols": ["ModelRegistry"],
+      "proposed_core_destination": "taqamind.core.registry.model"
+    }
+  ],
+  "verification_results": {
+    "verified_at_utc": "2026-11-25T14:17:08Z",
+    "python_version": "3.13.1",
+    "domain_pytest": {
+      "command": "python -m pytest tests/domains/iron_manufacturing -v --cov=taqamind.domains.iron_manufacturing --cov-report=term-missing",
+      "passed": 20,
+      "failed": 0,
+      "coverage_pct": 85
+    },
+    "full_repo_pytest": {
+      "command": "python -m pytest -q",
+      "passed": 812,
+      "failed": 0
+    },
+    "ruff_lint": {
+      "command": "python -m ruff check src tests research/iron_manufacturing --no-cache",
+      "status": "passed",
+      "errors": 0
+    },
+    "cli_separate_process_verification": {
+      "process": "eaf_meltshop",
+      "fixture_type": "explicit_synthetic",
+      "selected_family": "elastic_net",
+      "baseline_test_mae": 0.76041,
+      "selected_test_mae": 0.256718,
+      "test_improvement_pct": 66.24,
+      "decision": "accepted",
+      "predictions_after_fresh_process_reload": 2,
+      "registered_versions_after_predictions": 1,
+      "retraining_occurred_during_prediction": false
+    }
+  },
+  "remaining_blockers": [
+    "No real labeled Egyptian iron/steel factory historical CSV datasets are currently available; production training remains BLOCKED until factory data is onboarded.",
+    "Factory sign-off on target measurement semantics (EAF hot-heel/skull crediting, rolling mill-scale weighing, scrap weighbridge timing) is required before confirming production targets.",
+    "Local filesystem adapters require migration to transactional Shared Core storage/database infrastructure for concurrent multi-worker production deployment."
+  ]
+}

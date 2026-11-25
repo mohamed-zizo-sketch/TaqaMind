@@ -1,0 +1,542 @@
+[
+  {
+    "canonical_name": "rolling_lot_id",
+    "display_name": "Rolling Lot Identifier",
+    "description": "Unique business identifier for one billet-to-rebar rolling campaign lot.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "string",
+    "role": "identifier",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "lot_id",
+      "campaign_id",
+      "rolling_batch_id",
+      "رقم التشغيلة",
+      "رقم اللوط"
+    ],
+    "source_system": "Rolling MES",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": true,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "production_order_id",
+    "display_name": "Production Order Identifier",
+    "description": "Customer or campaign ERP order grouping multiple rolling lots.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "string",
+    "role": "metadata",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "order_id",
+      "work_order_id",
+      "امر الشغل"
+    ],
+    "source_system": "ERP",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": true,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "planned_start_ts",
+    "display_name": "Planned Lot Start Timestamp",
+    "description": "Scheduled timestamp when billet lot enters the reheating furnace (t0).",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "datetime",
+    "role": "timestamp",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "start_time",
+      "lot_date",
+      "تاريخ التشغيل"
+    ],
+    "source_system": "Rolling MES",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": true
+  },
+  {
+    "canonical_name": "mill_line_id",
+    "display_name": "Rolling Mill Line Identifier",
+    "description": "Physical hot rolling mill line asset identifier.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "category",
+    "role": "predictor",
+    "availability": "static",
+    "origin": "configured",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "mill_id",
+      "line_id",
+      "خط الدرفلة"
+    ],
+    "source_system": "MES Master Data",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "steel_grade_code",
+    "display_name": "Billet Steel Grade",
+    "description": "Steel grade specification of the charged billets (e.g., B500DWR).",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "category",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "steel_grade",
+      "grade_code",
+      "رتبة الصلب"
+    ],
+    "source_system": "ERP / Metallurgy",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "rebar_diameter_mm",
+    "display_name": "Target Rebar Diameter",
+    "description": "Ordered finished rebar nominal diameter (mm).",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "configured",
+    "unit": "mm",
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "bar_diameter_mm",
+      "diameter_mm",
+      "قطر السيخ"
+    ],
+    "source_system": "Rolling Order Spec",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 6.0,
+      "maximum": 50.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "planned_input_billet_mass_t",
+    "display_name": "Planned Input Billet Mass",
+    "description": "Total planned billet steel mass charged to the rolling lot (metric tons).",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": "metric_ton",
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "billet_input_mass_t",
+      "input_billet_tons",
+      "وزن البيلت الداخل"
+    ],
+    "source_system": "Billet Yard Scale",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 5000.0,
+      "minimum_inclusive": false,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "slitting_strands_count",
+    "display_name": "Slitting Strands Count",
+    "description": "Number of parallel slit rebar strands configured in the pass design.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "integer",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "configured",
+    "unit": "strands",
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "slit_strands",
+      "strands_count",
+      "عدد خطوط الشق"
+    ],
+    "source_system": "Mill Pass Design",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 1.0,
+      "maximum": 6.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "planned_billet_count",
+    "display_name": "Planned Billet Count",
+    "description": "Scheduled number of individual steel billets in the rolling lot.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "integer",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": "billets",
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "billet_count",
+      "عدد البيلت"
+    ],
+    "source_system": "Billet Yard Scale",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 1.0,
+      "maximum": 10000.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "charging_mode_hot_or_cold",
+    "display_name": "Billet Charging Mode",
+    "description": "Whether billets enter directly hot from CCM or cold from yard.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "category",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "charging_mode",
+      "hot_cold_charge",
+      "نوع الشحن"
+    ],
+    "source_system": "Mill Scheduler",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": [
+        "HOT_CHARGE",
+        "COLD_CHARGE"
+      ]
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "target_reheat_temp_c",
+    "display_name": "Target Reheat Furnace Temperature",
+    "description": "Planned billet discharge temperature setpoint at the reheating furnace.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "configured",
+    "unit": "degC",
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "aim_reheat_temp",
+      "حرارة التسخين المستهدفة"
+    ],
+    "source_system": "Furnace Recipe",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 950.0,
+      "maximum": 1300.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "finishing_roll_groove_tonnage_age_t",
+    "display_name": "Finishing Roll Groove Tonnage Age",
+    "description": "Cumulative metric tons rolled on the current finishing stand roll groove.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": "metric_ton",
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "groove_age_t",
+      "roll_tonnage_age",
+      "عمر الدرفيل"
+    ],
+    "source_system": "Roll Shop Log",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 50000.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "planned_mill_speed_mps",
+    "display_name": "Planned Finishing Mill Speed",
+    "description": "Scheduled finishing stand rolling velocity (m/s).",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "configured",
+    "unit": "m/s",
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "mill_speed_mps",
+      "سرعة الدرفلة"
+    ],
+    "source_system": "Mill PLC Recipe",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 1.0,
+      "maximum": 60.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "planned_input_billet_mass_kg",
+    "display_name": "Planned Input Billet Mass (kg)",
+    "description": "Exact SI conversion of planned_input_billet_mass_t (* 1000) into kg for unit-compatible waste rate calculations.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "derived",
+    "unit": "kg",
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [],
+    "source_system": null,
+    "derived_from": [
+      "planned_input_billet_mass_t"
+    ],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 5000000.0,
+      "minimum_inclusive": false,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "planned_single_billet_mass_t",
+    "display_name": "Planned Single Billet Mass",
+    "description": "Average planned billet mass = planned_input_billet_mass_t / billet count.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "derived",
+    "unit": "metric_ton",
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [],
+    "source_system": null,
+    "derived_from": [
+      "planned_input_billet_mass_t",
+      "planned_billet_count"
+    ],
+    "constraints": {
+      "minimum": 0.05,
+      "maximum": 20.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "is_multi_slit_flag",
+    "display_name": "Multi-Slit Rolling Indicator",
+    "description": "Binary indicator (1 if slitting_strands_count >= 2 else 0).",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "integer",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "derived",
+    "unit": null,
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [],
+    "source_system": null,
+    "derived_from": [
+      "slitting_strands_count"
+    ],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "total_rolling_waste_kg",
+    "display_name": "Total Rolling Waste Quantity",
+    "description": "Measured total rolling scrap and scale loss per rolling lot (crop ends + cobble scrap + mill scale + quality rejects) in kg.",
+    "process": "rebar_hot_rolling",
+    "granularity": "one_rolling_campaign_lot",
+    "data_type": "float",
+    "role": "target",
+    "availability": "post_production",
+    "origin": "measured",
+    "unit": "kg",
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "rolling_waste_kg",
+      "اجمالي هالك الدرفلة"
+    ],
+    "source_system": "Post-Roll Scrap Scales",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 1000000.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  }
+]

@@ -1,0 +1,88 @@
+process_id: rebar_hot_rolling
+dataset_id: rebar_rolling_lot_waste
+contract_version: 1.0.0
+example_source_to_canonical_mappings:
+  lot_id:
+    canonical_column: rolling_lot_id
+    source_unit: null
+    canonical_unit: null
+    role: identifier
+    availability: pre_production
+  order_id:
+    canonical_column: production_order_id
+    source_unit: null
+    canonical_unit: null
+    role: metadata
+    availability: pre_production
+  start_time:
+    canonical_column: planned_start_ts
+    source_unit: null
+    canonical_unit: null
+    role: timestamp
+    availability: pre_production
+  mill_id:
+    canonical_column: mill_line_id
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: static
+  steel_grade:
+    canonical_column: steel_grade_code
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  bar_diameter_mm:
+    canonical_column: rebar_diameter_mm
+    source_unit: mm
+    canonical_unit: mm
+    role: predictor
+    availability: pre_production
+  billet_input_mass_t:
+    canonical_column: planned_input_billet_mass_t
+    source_unit: metric_ton
+    canonical_unit: metric_ton
+    role: predictor
+    availability: pre_production
+  slit_strands:
+    canonical_column: slitting_strands_count
+    source_unit: strands
+    canonical_unit: strands
+    role: predictor
+    availability: pre_production
+  billet_count:
+    canonical_column: planned_billet_count
+    source_unit: billets
+    canonical_unit: billets
+    role: predictor
+    availability: pre_production
+  charging_mode:
+    canonical_column: charging_mode_hot_or_cold
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  aim_reheat_temp:
+    canonical_column: target_reheat_temp_c
+    source_unit: degC
+    canonical_unit: degC
+    role: predictor
+    availability: pre_production
+  groove_age_t:
+    canonical_column: finishing_roll_groove_tonnage_age_t
+    source_unit: metric_ton
+    canonical_unit: metric_ton
+    role: predictor
+    availability: pre_production
+  mill_speed_mps:
+    canonical_column: planned_mill_speed_mps
+    source_unit: m/s
+    canonical_unit: m/s
+    role: predictor
+    availability: pre_production
+  rolling_waste_kg:
+    canonical_column: total_rolling_waste_kg
+    source_unit: kg
+    canonical_unit: kg
+    role: target
+    availability: post_production

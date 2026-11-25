@@ -1,0 +1,4 @@
+rolling_lot_id,production_order_id,planned_start_ts,mill_line_id,steel_grade_code,rebar_diameter_mm,planned_input_billet_mass_t,slitting_strands_count,planned_billet_count,charging_mode_hot_or_cold,target_reheat_temp_c,finishing_roll_groove_tonnage_age_t,planned_mill_speed_mps,total_rolling_waste_kg
+RL-00001,ORD-RBR-0001,2026-01-01T06:00:00,MILL_A,B500B,10.0,131.59,3,81,HOT_CHARGE,1169.3,486.1,31.6,3384.16
+RL-00002,ORD-RBR-0001,2026-01-01T09:00:00,MILL_B,B500DWR,20.0,128.89,1,82,COLD_CHARGE,1141.5,3899.7,25.6,4036.5
+RL-00003,ORD-RBR-0001,2026-01-01T12:00:00,MILL_A,B500B,16.0,96.91,2,61,HOT_CHARGE,1115.4,3493.3,25.4,2566.69
