@@ -1,5 +1,9 @@
-"""Shared registry implementations."""
+﻿"""Shared registry implementations."""
 
+from taqamind.core.registry.artifact_storage import (
+    LocalDatasetArtifactStorage,
+    LocalModelArtifactStorage,
+)
 from taqamind.core.registry.domain_registry import (
     DomainAlreadyRegisteredError,
     DomainNotFoundError,
@@ -12,4 +16,6 @@ __all__ = [
     "DomainNotFoundError",
     "DomainRegistry",
     "DomainRegistryError",
+    "LocalDatasetArtifactStorage",
+    "LocalModelArtifactStorage",
 ]
