@@ -4,7 +4,7 @@ Reproducible command:
 ```powershell
 python research/iron_manufacturing/audit_raw_datasets.py
 ```
-Notebook: [01_iron_dataset_audit_and_eda.ipynb](file:///D:/TaqaMind/notebooks/iron_manufacturing/01_iron_dataset_audit_and_eda.ipynb)  
+Notebook: [01_iron_dataset_audit_and_eda.ipynb](../../../notebooks/iron_manufacturing/01_iron_dataset_audit_and_eda.ipynb)  
 Generated diagnostics & plots (gitignored): `reports/iron_manufacturing/dataset_audit_report.json` and `reports/iron_manufacturing/figures/*.png`.
 
 ## 1. EU Horizon ALCHIMIA Scrap Yard (`scrap_A.csv`, `scrap_C.csv`)

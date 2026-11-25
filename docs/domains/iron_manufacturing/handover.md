@@ -13,7 +13,7 @@
 2. **Protocol-Compatible Local Adapters (`src/taqamind/domains/iron_manufacturing/adapters/`):**
    - Full local implementations of all Shared Core storage, registry, processing, lineage, readiness, splitting, leakage, data access, training, protected evaluation, and zero-retraining prediction protocols.
    - Windows long-path safe (`\\?\`) for nested artifact keys.
-   - Full migration blueprint in [core-contribution-proposal.md](file:///D:/TaqaMind/docs/domains/iron_manufacturing/core-contribution-proposal.md).
+   - Full migration blueprint in [core-contribution-proposal.md](./core-contribution-proposal.md).
 3. **Services, Pipeline Facade & CLI (`services/`, `pipeline.py`, `cli.py`):**
    - Strict architectural isolation between training (`IronTrainingService`) and zero-retraining inference (`IronPredictionService`).
    - CLI supporting `inspect`, `template`, `validate`, `train`, `predict`, `retrain`, `model-info`, and `rollback`.
@@ -21,7 +21,7 @@
    - Reproducible SHA-256 forensic audit & diagnostic plotting for all 5 supplied raw datasets.
 5. **Automated Tests (`tests/domains/iron_manufacturing/`):**
    - Deterministic offline contract, protocol conformance, mapping, unit, lineage, isolation, readiness, leakage, train-only preprocessing, protected evaluation, corruption detection, mandatory zero-retraining spy test, explicit retraining/promotion/rollback, and CLI end-to-end tests.
-6. **Machine-Readable Manifest:** See [handover-manifest.json](file:///D:/TaqaMind/docs/domains/iron_manufacturing/handover-manifest.json) for full metadata, entrypoints, adapters, actual test/lint/coverage metrics, and open blockers.
+6. **Machine-Readable Manifest:** See [handover-manifest.json](./handover-manifest.json) for full metadata, entrypoints, adapters, actual test/lint/coverage metrics, and open blockers.
 
 ## Recommended Next Integration Steps for Repository Owner
 1. Review `git diff --stat develop..HEAD` to confirm zero shared Core or other-domain modifications.
