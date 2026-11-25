@@ -194,7 +194,7 @@ def map_csv(
 
     mapper = DeterministicColumnMapper(storage)
     proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
-    
+
     # This synthetic fixture uses the canonical units.
     confirmed_entries = tuple(
         entry.model_copy(
