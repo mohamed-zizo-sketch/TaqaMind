@@ -9,6 +9,7 @@ import pandas as pd
 from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import (
     DatasetPurpose,
+    DataType,
     IssueImpact,
     PipelineStage,
     ValidationSeverity,
@@ -43,6 +44,10 @@ from taqamind.core.interfaces.results import (
     StageTiming,
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
+from taqamind.core.mapping.unit_conversion import (
+    UnitConversionError,
+    UnitConverter,
+)
 
 
 class DeterministicColumnMapper(ColumnMapper):
@@ -52,10 +57,11 @@ class DeterministicColumnMapper(ColumnMapper):
         self,
         storage: DatasetArtifactStorage,
         *,
-        implementation_version: str = "0.1.0",
+        implementation_version: str = "0.2.0",
     ) -> None:
         self._storage = storage
         self._implementation_version = implementation_version
+        self._unit_converter = UnitConverter()
 
     def propose_mapping(
         self,
@@ -95,7 +101,7 @@ class DeterministicColumnMapper(ColumnMapper):
         matched_by_source: dict[str, ColumnMappingEntry] = {}
         claimed_canonicals: set[str] = set()
 
-        # Pass 1: exact canonical name matches (auto-confirmed, highest priority).
+        # Pass 1: exact canonical name matches (highest priority).
         for source_col in source_columns:
             feature = exact_lookup.get(source_col)
             if feature is None or feature.name in claimed_canonicals:
@@ -105,10 +111,15 @@ class DeterministicColumnMapper(ColumnMapper):
                 source_column=source_col,
                 canonical_column=feature.name,
                 method=MappingMethod.EXACT,
-                source_unit=feature.unit,
+                source_unit=None,
                 canonical_unit=feature.unit,
-                requires_confirmation=False,
-                reason="Exact canonical column name match.",
+                requires_confirmation=feature.unit is not None,
+                reason=(
+                    "Exact canonical column name match. "
+                    "Source unit requires explicit confirmation."
+                    if feature.unit is not None
+                    else "Exact canonical column name match."
+                ),
             )
 
         # Pass 2: declared alias matches (require confirmation).
@@ -124,7 +135,7 @@ class DeterministicColumnMapper(ColumnMapper):
                 source_column=source_col,
                 canonical_column=feature.name,
                 method=MappingMethod.ALIAS,
-                source_unit=feature.unit,
+                source_unit=None,
                 canonical_unit=feature.unit,
                 requires_confirmation=True,
                 reason=f"Matched contract alias for '{feature.name}'.",
@@ -143,7 +154,7 @@ class DeterministicColumnMapper(ColumnMapper):
                 source_column=source_col,
                 canonical_column=feature.name,
                 method=MappingMethod.RULE_BASED,
-                source_unit=feature.unit,
+                source_unit=None,
                 canonical_unit=feature.unit,
                 requires_confirmation=True,
                 reason=f"Case-insensitive match for canonical column '{feature.name}'.",
@@ -167,6 +178,77 @@ class DeterministicColumnMapper(ColumnMapper):
             entries=entries,
             unmapped_columns=unmapped,
         )
+
+    def _apply_unit_conversions(
+        self,
+        *,
+        df: pd.DataFrame,
+        contract: DatasetContract,
+        mapping: ApprovedMapping,
+    ) -> tuple[pd.DataFrame, list[ValidationIssue]]:
+        """Apply explicitly confirmed and compatible unit conversions."""
+
+        converted_df = df.copy()
+        issues: list[ValidationIssue] = []
+        confirmed_columns = set(mapping.confirmed_source_columns)
+
+        for entry in mapping.proposal.entries:
+            feature = contract.column_map[entry.canonical_column]
+            source_unit = entry.source_unit
+            canonical_unit = entry.canonical_unit
+
+            if source_unit is None and canonical_unit is None:
+                continue
+
+            if source_unit is None or canonical_unit is None:
+                raise UnitConversionError(
+                    f"Incomplete unit definition for '{feature.name}'."
+                )
+
+            if entry.source_column not in confirmed_columns:
+                raise UnitConversionError(
+                    f"Source unit for '{entry.source_column}' "
+                    "has not been explicitly confirmed."
+                )
+
+            if source_unit == canonical_unit:
+                # Confirmed identical units, including domain-specific compound units.
+                continue
+
+            if feature.data_type not in {DataType.INTEGER, DataType.FLOAT}:
+                raise UnitConversionError(
+                    f"Unit conversion requires a numeric feature: '{feature.name}'."
+                )
+
+
+            convert = (
+                self._unit_converter.convert_integer_series
+                if feature.data_type == DataType.INTEGER
+                else self._unit_converter.convert_series
+            )
+            converted_df[entry.source_column] = convert(
+                converted_df[entry.source_column],
+                source_unit=source_unit,
+                canonical_unit=canonical_unit,
+            )
+
+
+            issues.append(
+                ValidationIssue(
+                    code="UNIT_CONVERSION_APPLIED",
+                    stage=PipelineStage.COLUMN_MAPPING,
+                    severity=ValidationSeverity.INFO,
+                    impact=IssueImpact.NONE,
+                    message=(
+                        f"Converted '{entry.source_column}' "
+                        f"from '{source_unit}' to '{canonical_unit}' "
+                        f"using UnitConverter v{self._unit_converter.VERSION}."
+                    ),
+                    columns=(entry.canonical_column,),
+                )
+            )
+
+        return converted_df, issues
 
     def apply_mapping(
         self,
@@ -203,7 +285,34 @@ class DeterministicColumnMapper(ColumnMapper):
             factory_id=context.factory_id,
             reference=artifact.reference,
         ) as stream:
-            df = pd.read_csv(stream, keep_default_na=True)
+            integer_sources = {
+                entry.source_column: "string"
+                for entry in entries
+                if contract.column_map[entry.canonical_column].data_type == DataType.INTEGER
+                and entry.source_unit != entry.canonical_unit
+            }
+            df = pd.read_csv(stream, keep_default_na=True, dtype=integer_sources)
+
+        try:
+            df, conversion_issues = self._apply_unit_conversions(
+                df=df,
+                contract=contract,
+                mapping=mapping,
+            )
+        except UnitConversionError as exc:
+            return StageResult(
+                context=context,
+                stage=PipelineStage.COLUMN_MAPPING,
+                status=ExecutionStatus.FAILED,
+                input_artifact=artifact,
+                report=None,
+                timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
+                error=ExecutionError(
+                    code="UNIT_CONVERSION_FAILED",
+                    message=str(exc),
+                    retryable=False,
+                ),
+            )
 
         rename_map = {
             entry.source_column: entry.canonical_column for entry in entries
@@ -259,7 +368,7 @@ class DeterministicColumnMapper(ColumnMapper):
             reference=mapped_ref,
         )
 
-        issues: list[ValidationIssue] = []
+        issues: list[ValidationIssue] = list(conversion_issues)
         if mapping.proposal.unmapped_columns:
             issues.append(
                 ValidationIssue(

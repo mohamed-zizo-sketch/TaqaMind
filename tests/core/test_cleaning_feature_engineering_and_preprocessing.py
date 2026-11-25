@@ -194,7 +194,30 @@ def map_csv(
 
     mapper = DeterministicColumnMapper(storage)
     proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
-    approved = ApprovedMapping(proposal=proposal, approved_by="engineer")
+    
+    # This synthetic fixture uses the canonical units.
+    confirmed_entries = tuple(
+        entry.model_copy(
+            update={"source_unit": entry.canonical_unit}
+        )
+        for entry in proposal.entries
+    )
+
+    confirmed_proposal = proposal.model_copy(
+        update={"entries": confirmed_entries}
+    )
+
+    approved = ApprovedMapping(
+        proposal=confirmed_proposal,
+        approved_by="engineer",
+        confirmed_source_columns=tuple(
+            entry.source_column
+            for entry in confirmed_entries
+            if entry.requires_confirmation
+            or entry.canonical_unit is not None
+        ),
+    )
+
     mapped = mapper.apply_mapping(
         context=context,
         artifact=ingested,

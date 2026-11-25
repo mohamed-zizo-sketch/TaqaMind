@@ -5,6 +5,9 @@ from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
+import pandas as pd
+import pytest
+
 from taqamind.core.contracts import (
     DatasetContract,
     DatasetPurpose,
@@ -36,9 +39,32 @@ from taqamind.core.interfaces import (
     PipelineContext,
     SemanticValidator,
 )
+from taqamind.core.interfaces.processing_models import MappingProposal
 from taqamind.core.mapping import DeterministicColumnMapper
 from taqamind.core.registry import LocalDatasetArtifactStorage
 from taqamind.core.validation import ContractSemanticValidator
+
+
+def approve_mapping_with_units(
+    proposal: MappingProposal,
+    *,
+    source_units: dict[str, str],
+    approved_by: str = "plant_engineer",
+) -> ApprovedMapping:
+    """Simulate explicit confirmation of source units by a factory operator."""
+    entries = tuple(
+        entry.model_copy(update={"source_unit": source_units.get(entry.source_column)})
+        for entry in proposal.entries
+    )
+    return ApprovedMapping(
+        proposal=proposal.model_copy(update={"entries": entries}),
+        approved_by=approved_by,
+        confirmed_source_columns=tuple(
+            entry.source_column
+            for entry in entries
+            if entry.requires_confirmation or entry.canonical_unit is not None
+        ),
+    )
 
 
 def make_contract_and_context(
@@ -198,10 +224,8 @@ def test_propose_apply_mapping_and_semantic_validation_succeed(tmp_path: Path):
     assert by_source["waste_qty"].method == MappingMethod.EXACT
     assert proposal.unmapped_columns == ("extra_notes",)
 
-    approved = ApprovedMapping(
-        proposal=proposal,
-        approved_by="plant_engineer",
-        confirmed_source_columns=("Batch Number", "Planned Qty"),
+    approved = approve_mapping_with_units(
+        proposal, source_units={"Planned Qty": "kg", "waste_qty": "kg"}
     )
     map_res = mapper.apply_mapping(
         context=context,
@@ -245,7 +269,9 @@ def test_semantic_validation_blocks_constraints_missing_and_duplicates(tmp_path:
     ingested = ingest_csv(storage, context, contract, csv_bytes)
     mapper = DeterministicColumnMapper(storage)
     proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
-    approved = ApprovedMapping(proposal=proposal, approved_by="plant_engineer")
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": "kg", "waste_qty": "kg"}
+    )
     mapped = mapper.apply_mapping(
         context=context,
         artifact=ingested,
@@ -281,7 +307,9 @@ def test_prediction_mapping_excludes_target_column(tmp_path: Path):
     mapper = DeterministicColumnMapper(storage)
     proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
     assert "waste_qty" in proposal.unmapped_columns
-    approved = ApprovedMapping(proposal=proposal, approved_by="operator")
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": "kg"}, approved_by="operator"
+    )
     map_res = mapper.apply_mapping(
         context=context,
         artifact=ingested,
@@ -294,3 +322,119 @@ def test_prediction_mapping_excludes_target_column(tmp_path: Path):
         "batch_id",
         "planned_qty",
     ]
+
+
+@pytest.mark.parametrize(
+    ("source_unit", "expected"),
+    [("g", 5.0), ("kg", 5000.0)],
+)
+def test_mapping_converts_confirmed_units(tmp_path: Path, source_unit: str, expected: float):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    ingested = ingest_csv(
+        storage, context, contract, b"batch_id,planned_qty,waste_qty\nB1,5000,2000\nB2,0,0\n"
+    )
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    by_source = {entry.source_column: entry for entry in proposal.entries}
+    assert by_source["planned_qty"].source_unit is None
+    assert by_source["planned_qty"].requires_confirmation
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": source_unit, "waste_qty": "g"}
+    )
+    result = mapper.apply_mapping(
+        context=context, artifact=ingested, contract=contract, mapping=approved
+    )
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.output_artifact is not None
+    assert result.report is not None
+    with storage.open_verified(
+        factory_id=context.factory_id, reference=result.output_artifact.reference
+    ) as stream:
+        mapped = pd.read_csv(stream)
+    assert mapped["planned_qty"].tolist() == pytest.approx([expected, 0.0])
+    assert mapped["waste_qty"].tolist() == pytest.approx([2.0, 0.0])
+    assert mapped["batch_id"].tolist() == ["B1", "B2"]
+    assert "UNIT_CONVERSION_APPLIED" in {issue.code for issue in result.report.issues}
+
+
+@pytest.mark.parametrize("source_unit", ["L", "ton"])
+def test_mapping_rejects_unsupported_conversion(tmp_path: Path, source_unit: str):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    ingested = ingest_csv(storage, context, contract, b"batch_id,planned_qty,waste_qty\nB1,5,1\n")
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": source_unit, "waste_qty": "kg"}
+    )
+    before = {path for path in tmp_path.rglob("*") if path.is_file()}
+    result = mapper.apply_mapping(
+        context=context, artifact=ingested, contract=contract, mapping=approved
+    )
+    assert result.status == ExecutionStatus.FAILED
+    assert result.output_artifact is None
+    assert result.error is not None
+    assert result.error.code == "UNIT_CONVERSION_FAILED"
+    assert {path for path in tmp_path.rglob("*") if path.is_file()} == before
+
+
+def test_mapping_requires_explicit_unit_confirmation(tmp_path: Path):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    ingested = ingest_csv(storage, context, contract, b"batch_id,planned_qty,waste_qty\nB1,5,1\n")
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    with pytest.raises(ValueError, match="Required mapping confirmations are missing"):
+        ApprovedMapping(proposal=proposal, approved_by="operator")
+    approved = approve_mapping_with_units(proposal, source_units={"waste_qty": "kg"})
+    with pytest.raises(ValueError, match="Unknown source unit"):
+        mapper.apply_mapping(
+            context=context, artifact=ingested, contract=contract, mapping=approved
+        )
+
+
+@pytest.mark.parametrize(
+    ("canonical_unit", "source_unit", "data_type", "value", "expected"),
+    [
+        ("kg", "g", DataType.INTEGER, "2000", 2),
+        ("kg", "g", DataType.INTEGER, "1500", None),
+        ("kg", "g", DataType.INTEGER, "9007199254740993", None),
+        ("rpm", "rpm", DataType.FLOAT, "300", 300),
+        ("kg/h", "kg/h", DataType.FLOAT, "5", 5),
+        ("g/h", "kg/h", DataType.FLOAT, "5", None),
+    ],
+)
+def test_mapping_integer_and_compound_units(
+    tmp_path, canonical_unit, source_unit, data_type, value, expected
+):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    payload = contract.model_dump()
+    payload["features"][1]["unit"] = canonical_unit
+    payload["features"][1]["data_type"] = data_type
+    contract = DatasetContract.model_validate(payload)
+    csv_bytes = f"batch_id,planned_qty,waste_qty\nB1,{value},1\n".encode()
+    ingested = ingest_csv(storage, context, contract, csv_bytes)
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": source_unit, "waste_qty": "kg"}
+    )
+    before = {path for path in tmp_path.rglob("*") if path.is_file()}
+    result = mapper.apply_mapping(
+        context=context, artifact=ingested, contract=contract, mapping=approved
+    )
+    if expected is None:
+        assert result.status == ExecutionStatus.FAILED
+        assert result.output_artifact is None
+        assert result.error is not None
+        assert result.error.code == "UNIT_CONVERSION_FAILED"
+        assert {path for path in tmp_path.rglob("*") if path.is_file()} == before
+    else:
+        assert result.status == ExecutionStatus.SUCCEEDED
+        assert result.output_artifact is not None
+        with storage.open_verified(
+            factory_id=context.factory_id, reference=result.output_artifact.reference
+        ) as stream:
+            assert pd.read_csv(stream)["planned_qty"].iloc[0] == expected
