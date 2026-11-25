@@ -26,6 +26,7 @@ from taqamind.core.contracts import (
     TaskType,
 )
 from taqamind.core.ingestion import CsvDataIngestion
+from taqamind.core.ingestion.safe_csv import SafeCsvReader
 from taqamind.core.interfaces import (
     ApprovedMapping,
     ArtifactFormat,
@@ -438,3 +439,59 @@ def test_mapping_integer_and_compound_units(
             factory_id=context.factory_id, reference=result.output_artifact.reference
         ) as stream:
             assert pd.read_csv(stream)["planned_qty"].iloc[0] == expected
+
+
+@pytest.mark.parametrize("header", ["batch_id", "Batch Number"])
+def test_mapping_preserves_lexical_values(tmp_path: Path, header: str):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    csv_bytes = (
+        f"{header},planned_qty,waste_qty\n"
+        "000123,9007199254740993,1.2300\n"
+        "00123,2.000,0\n"
+        "NA,3,1\n"
+        "NULL,4,\n"
+    ).encode()
+    ingested = ingest_csv(storage, context, contract, csv_bytes)
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": "kg", "waste_qty": "kg"}
+    )
+    result = mapper.apply_mapping(
+        context=context, artifact=ingested, contract=contract, mapping=approved
+    )
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.output_artifact is not None
+    with storage.open_verified(
+        factory_id=context.factory_id, reference=result.output_artifact.reference
+    ) as stream:
+        mapped = SafeCsvReader().read(stream.read())
+    assert mapped["batch_id"].tolist() == ["000123", "00123", "NA", "NULL"]
+    assert mapped["planned_qty"].tolist() == ["9007199254740993", "2.000", "3", "4"]
+    assert mapped["waste_qty"].iloc[:3].tolist() == ["1.2300", "0", "1"]
+    assert pd.isna(mapped["waste_qty"].iloc[3])
+
+
+def test_mapping_rejects_large_fraction_without_ingestion_rounding(tmp_path: Path):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    payload = contract.model_dump()
+    payload["features"][1]["data_type"] = DataType.INTEGER
+    contract = DatasetContract.model_validate(payload)
+    ingested = ingest_csv(
+        storage, context, contract,
+        b"batch_id,planned_qty,waste_qty\nB1,9007199254740001,1\n",
+    )
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": "g", "waste_qty": "kg"}
+    )
+    result = mapper.apply_mapping(
+        context=context, artifact=ingested, contract=contract, mapping=approved
+    )
+    assert result.status == ExecutionStatus.FAILED
+    assert result.output_artifact is None
+    assert result.error is not None
+    assert result.error.code == "UNIT_CONVERSION_FAILED"

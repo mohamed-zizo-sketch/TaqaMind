@@ -15,6 +15,7 @@ from taqamind.core.contracts.enums import (
     ValidationSeverity,
 )
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
     ArtifactReference,
@@ -57,11 +58,12 @@ class DeterministicColumnMapper(ColumnMapper):
         self,
         storage: DatasetArtifactStorage,
         *,
-        implementation_version: str = "0.2.0",
+        implementation_version: str = "0.3.0",
     ) -> None:
         self._storage = storage
         self._implementation_version = implementation_version
         self._unit_converter = UnitConverter()
+        self._reader = SafeCsvReader()
 
     def propose_mapping(
         self,
@@ -281,17 +283,29 @@ class DeterministicColumnMapper(ColumnMapper):
                 ),
             )
 
-        with self._storage.open_verified(
-            factory_id=context.factory_id,
-            reference=artifact.reference,
-        ) as stream:
-            integer_sources = {
-                entry.source_column: "string"
-                for entry in entries
-                if contract.column_map[entry.canonical_column].data_type == DataType.INTEGER
-                and entry.source_unit != entry.canonical_unit
-            }
-            df = pd.read_csv(stream, keep_default_na=True, dtype=integer_sources)
+        try:
+            with self._storage.open_verified(
+                factory_id=context.factory_id,
+                reference=artifact.reference,
+            ) as stream:
+                df = self._reader.read(stream.read())
+
+            expected_columns = tuple(col.name for col in artifact.metadata.columns)
+            if tuple(df.columns) != expected_columns or len(df) != artifact.metadata.row_count:
+                raise SafeCsvError(
+                    "MAPPING_SCHEMA_MISMATCH",
+                    "CSV columns or row count differ from the input artifact metadata.",
+                )
+        except SafeCsvError as exc:
+            return StageResult(
+                context=context,
+                stage=PipelineStage.COLUMN_MAPPING,
+                status=ExecutionStatus.FAILED,
+                input_artifact=artifact,
+                report=None,
+                timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
+                error=ExecutionError(code=exc.code, message=str(exc), retryable=False),
+            )
 
         try:
             df, conversion_issues = self._apply_unit_conversions(
@@ -325,7 +339,7 @@ class DeterministicColumnMapper(ColumnMapper):
         mapped_df = df[list(rename_map.keys())].rename(columns=rename_map)
         mapped_df = mapped_df[canonical_order]
 
-        mapped_bytes = mapped_df.to_csv(index=False).encode("utf-8")
+        mapped_bytes = mapped_df.to_csv(index=False, lineterminator="\r\n").encode("utf-8")
         mapped_ref = ArtifactReference(
             factory_id=context.factory_id,
             format=ArtifactFormat.CSV,
@@ -361,8 +375,10 @@ class DeterministicColumnMapper(ColumnMapper):
             operation="apply_mapping",
             implementation_version=self._implementation_version,
             configuration_sha256=config_sha256,
-            description="Applied approved canonical column mapping.",
-        )
+       description=(
+            "Applied approved canonical column mapping "
+            "with lexical value preservation."
+        ),        )
         output_artifact = DatasetArtifact(
             metadata=mapped_metadata,
             reference=mapped_ref,
