@@ -1,0 +1,761 @@
+{
+  "brewery_data": {
+    "file": "brewery_data.csv",
+    "sha256": "a1c0bf3c67e754e81ef9a16b4efe7b74060a50c071852724ffca9ec6b5a17ac0",
+    "rows": 583,
+    "columns": 20,
+    "column_names": [
+      "Batch_ID",
+      "Brew_Date",
+      "Beer_Style",
+      "SKU",
+      "Location",
+      "Fermentation_Time",
+      "Temperature",
+      "pH_Level",
+      "Gravity",
+      "Alcohol_Content",
+      "Bitterness",
+      "Color",
+      "Ingredient_Ratio",
+      "Volume_Produced",
+      "Total_Sales",
+      "Quality_Score",
+      "Brewhouse_Efficiency",
+      "Loss_During_Brewing",
+      "Loss_During_Fermentation",
+      "Loss_During_Bottling_Kegging"
+    ],
+    "missing_counts": {},
+    "exact_duplicate_rows": 0,
+    "unique_batch_ids": 583,
+    "date_range": [
+      "2020-01-01",
+      "2020-12-30"
+    ],
+    "categorical_cardinality": {
+      "Beer_Style": {
+        "Pilsner": 94,
+        "Ale": 80,
+        "Lager": 72,
+        "Sour": 70,
+        "Porter": 70,
+        "Stout": 69,
+        "Wheat Beer": 66,
+        "IPA": 62
+      },
+      "SKU": {
+        "Pints": 155,
+        "Bottles": 149,
+        "Cans": 143,
+        "Kegs": 136
+      },
+      "Location": {
+        "Marathahalli": 68,
+        "Indiranagar": 64,
+        "Electronic City": 64,
+        "Whitefield": 61,
+        "Yelahanka": 58,
+        "Koramangala": 58,
+        "Rajajinagar": 57,
+        "Malleswaram": 53,
+        "HSR Layout": 50,
+        "Jayanagar": 50
+      },
+      "Ingredient_Ratio_nunique": 370
+    },
+    "numeric_summary": {
+      "Fermentation_Time": {
+        "count": 583.0,
+        "mean": 13.211,
+        "std": 5.5478,
+        "min": 7.0,
+        "25%": 9.0,
+        "50%": 11.0,
+        "75%": 18.5,
+        "max": 26.0
+      },
+      "Temperature": {
+        "count": 583.0,
+        "mean": 17.7684,
+        "std": 4.0091,
+        "min": 8.0,
+        "25%": 14.25,
+        "50%": 19.0,
+        "75%": 20.55,
+        "max": 25.0
+      },
+      "pH_Level": {
+        "count": 583.0,
+        "mean": 4.3911,
+        "std": 0.4299,
+        "min": 3.2,
+        "25%": 4.22,
+        "50%": 4.45,
+        "75%": 4.67,
+        "max": 5.43
+      },
+      "Gravity": {
+        "count": 583.0,
+        "mean": 1.2273,
+        "std": 0.036,
+        "min": 1.161,
+        "25%": 1.1985,
+        "50%": 1.222,
+        "75%": 1.254,
+        "max": 1.32
+      },
+      "Alcohol_Content": {
+        "count": 583.0,
+        "mean": 5.5638,
+        "std": 0.9082,
+        "min": 4.0,
+        "25%": 4.8,
+        "50%": 5.5,
+        "75%": 6.2,
+        "max": 8.2
+      },
+      "Bitterness": {
+        "count": 583.0,
+        "mean": 34.6261,
+        "std": 11.3796,
+        "min": 15.0,
+        "25%": 25.0,
+        "50%": 33.0,
+        "75%": 44.0,
+        "max": 59.0
+      },
+      "Color": {
+        "count": 583.0,
+        "mean": 11.6261,
+        "std": 3.8415,
+        "min": 5.0,
+        "25%": 8.0,
+        "50%": 11.0,
+        "75%": 15.0,
+        "max": 19.0
+      },
+      "Volume_Produced": {
+        "count": 583.0,
+        "mean": 2730.3654,
+        "std": 965.3733,
+        "min": 741.0,
+        "25%": 1983.5,
+        "50%": 2603.0,
+        "75%": 3371.0,
+        "max": 5000.0
+      },
+      "Total_Sales": {
+        "count": 583.0,
+        "mean": 14859.6611,
+        "std": 5748.3758,
+        "min": 4631.86,
+        "25%": 10805.785,
+        "50%": 13398.15,
+        "75%": 17616.595,
+        "max": 39049.82
+      },
+      "Quality_Score": {
+        "count": 583.0,
+        "mean": 9.5142,
+        "std": 0.4624,
+        "min": 7.9,
+        "25%": 9.2,
+        "50%": 9.6,
+        "75%": 10.0,
+        "max": 10.0
+      },
+      "Brewhouse_Efficiency": {
+        "count": 583.0,
+        "mean": 78.3458,
+        "std": 2.8678,
+        "min": 70.0,
+        "25%": 76.404,
+        "50%": 78.4827,
+        "75%": 80.382,
+        "max": 87.1504
+      },
+      "Loss_During_Brewing": {
+        "count": 583.0,
+        "mean": 2.4115,
+        "std": 0.8419,
+        "min": 1.5,
+        "25%": 1.6,
+        "50%": 2.3,
+        "75%": 3.0,
+        "max": 5.4
+      },
+      "Loss_During_Fermentation": {
+        "count": 583.0,
+        "mean": 3.7533,
+        "std": 1.0756,
+        "min": 2.0,
+        "25%": 2.9,
+        "50%": 3.8,
+        "75%": 4.5,
+        "max": 7.5
+      },
+      "Loss_During_Bottling_Kegging": {
+        "count": 583.0,
+        "mean": 2.9976,
+        "std": 0.8625,
+        "min": 1.5,
+        "25%": 2.4,
+        "50%": 3.0,
+        "75%": 3.55,
+        "max": 5.6
+      },
+      "Total_Loss": {
+        "count": 583.0,
+        "mean": 9.1624,
+        "std": 1.5812,
+        "min": 5.3,
+        "25%": 8.05,
+        "50%": 9.2,
+        "75%": 10.25,
+        "max": 14.8
+      }
+    },
+    "zero_loss_counts": {
+      "Loss_During_Brewing_zero": 0,
+      "Loss_During_Fermentation_zero": 0,
+      "Loss_During_Bottling_Kegging_zero": 0,
+      "Total_Loss_zero": 0
+    },
+    "correlations_with_total_loss": {
+      "Batch_ID": 0.03,
+      "Fermentation_Time": 0.0542,
+      "Temperature": 0.0113,
+      "pH_Level": 0.0215,
+      "Gravity": -0.0349,
+      "Alcohol_Content": -0.0702,
+      "Bitterness": -0.0087,
+      "Color": -0.0341,
+      "Volume_Produced": 0.0496,
+      "Total_Sales": -0.009,
+      "Quality_Score": -0.0483,
+      "Brewhouse_Efficiency": -0.1485,
+      "Loss_During_Brewing": 0.5269,
+      "Loss_During_Fermentation": 0.6678,
+      "Loss_During_Bottling_Kegging": 0.4861,
+      "Total_Loss": 1.0
+    }
+  },
+  "dairy_energy": {
+    "sec_monthly": {
+      "file": "01_DATA_Figure_2_specific_energy_consumption.csv",
+      "sha256": "497ddccca5588f7b428808d969abccb613078903b08a1b44074d1ddf9f049879",
+      "rows": 12,
+      "columns": 25,
+      "missing": {},
+      "year_months": [
+        "2024-01",
+        "2024-02",
+        "2024-03",
+        "2024-04",
+        "2024-05",
+        "2024-06",
+        "2024-07",
+        "2024-08",
+        "2024-09",
+        "2024-10",
+        "2024-11",
+        "2024-12"
+      ],
+      "processed_milk_m3_sum": 20546.0,
+      "water_m3_sum": 26378.0
+    },
+    "thermal_loads_1min": {
+      "file": "02_DATA_thermal_loads_in_kW.csv",
+      "sha256": "35680d57f0db29995677d8e9e924e24fb0cec3f2838982fe980fef19db45809f",
+      "rows": 525564,
+      "columns": 8,
+      "missing": {
+        "Glycol Process Cooling [kW]": 576,
+        "Direct Water Process Cooling: CO2 unit 4 [kW]": 763,
+        "Hot Water overproduction / preCIP [kW]": 600
+      },
+      "time_range": [
+        "2024-01-01 00:00:00",
+        "2024-12-31 23:59:00"
+      ],
+      "negative_values_counts": {
+        "Glycol Process Cooling [kW]": 7638,
+        "Direct Water Process Cooling: CO2 unit 4 [kW]": 14045,
+        "Hot Water overproduction / preCIP [kW]": 8585
+      },
+      "summary_kw": {
+        "Glycol Process Cooling [kW]": {
+          "count": 524988.0,
+          "mean": 37.29,
+          "std": 45.46,
+          "min": -38.69,
+          "25%": 0.0,
+          "50%": 15.5,
+          "75%": 78.03,
+          "max": 286.44
+        },
+        "Direct Water Process Cooling: CO2 unit 4 [kW]": {
+          "count": 524801.0,
+          "mean": 3.53,
+          "std": 11.98,
+          "min": -27.39,
+          "25%": 0.0,
+          "50%": 0.0,
+          "75%": 0.0,
+          "max": 102.15
+        },
+        "Cold Storage & AC Cooling [kW]": {
+          "count": 525564.0,
+          "mean": 28.06,
+          "std": 17.01,
+          "min": 0.0,
+          "25%": 15.49,
+          "50%": 21.79,
+          "75%": 38.88,
+          "max": 159.11
+        },
+        "Hot Water CIP [kW]": {
+          "count": 525564.0,
+          "mean": 33.67,
+          "std": 88.01,
+          "min": 0.0,
+          "25%": 0.0,
+          "50%": 0.0,
+          "75%": 0.0,
+          "max": 545.07
+        },
+        "Hot Water truck hall [kW]": {
+          "count": 525564.0,
+          "mean": 19.14,
+          "std": 76.61,
+          "min": 0.0,
+          "25%": 0.0,
+          "50%": 0.0,
+          "75%": 0.0,
+          "max": 648.81
+        },
+        "Hot Water production [kW]": {
+          "count": 525564.0,
+          "mean": 24.53,
+          "std": 45.78,
+          "min": 0.0,
+          "25%": 0.0,
+          "50%": 7.98,
+          "75%": 22.57,
+          "max": 560.82
+        },
+        "Hot Water overproduction / preCIP [kW]": {
+          "count": 524964.0,
+          "mean": 19.49,
+          "std": 33.38,
+          "min": -49.69,
+          "25%": 0.0,
+          "50%": 0.0,
+          "75%": 32.42,
+          "max": 234.37
+        }
+      }
+    },
+    "electric_boiler_1h": {
+      "file": "03_DATA_electric_boiler_consumption_in_kW.csv",
+      "sha256": "ce7442d3e47aec732280a6681a757e178cc71e1740be003b283714fd4dad4558",
+      "rows": 8784,
+      "columns": 2,
+      "missing": {},
+      "time_range": [
+        "2024-01-01 00:00:00",
+        "2024-12-31 23:00:00"
+      ],
+      "summary_kw": {
+        "El. Boiler consumption [kW]": {
+          "count": 8784.0,
+          "mean": 101.7,
+          "std": 89.3,
+          "min": 0.0,
+          "25%": 30.5,
+          "50%": 58.5,
+          "75%": 162.5,
+          "max": 484.0
+        }
+      }
+    }
+  },
+  "bakery_scheduling": {
+    "BK15": {
+      "file": "Babor M-Hitzmann B-2022-Small and medium-sized bakery production data for scheduling-BK15.xlsx",
+      "sha256": "533dd62be40f37ff62d647001ef0bcc2a5db351e1a1db29280de272ada119a69",
+      "rows": 159,
+      "columns": 15,
+      "missing": {
+        "dataset": 158,
+        "machine_id": 149,
+        " machine_name": 149,
+        "machine_category": 149,
+        "employee_id": 156,
+        "shift_start": 156,
+        "shift_end": 156,
+        "machines_ employees_ME": 36
+      },
+      "unique_products": 3,
+      "unique_machines": 10,
+      "unique_stages": [
+        "Preparation",
+        "Kneading",
+        "Dividing",
+        "Proofing",
+        "Load Baking",
+        "Baking",
+        "Unload baking",
+        "Cooling",
+        "Load kneader",
+        "Kneading disch.",
+        "Dough rest",
+        "Discharge baking",
+        "Unmolding",
+        "Discharge kneading",
+        "Load dividing",
+        "Cutting-forming",
+        "Transfer to Proofing",
+        "Load baking",
+        "packaging",
+        "Shaping",
+        "Freezing",
+        "Cold-storage",
+        "Tr. To Cold-storage",
+        "Defrost"
+      ],
+      "total_batches": 164,
+      "duration_PT_summary": {
+        "count": 159.0,
+        "mean": 21.45,
+        "std": 26.55,
+        "min": 1.0,
+        "25%": 3.0,
+        "50%": 10.0,
+        "75%": 30.0,
+        "max": 120.0
+      },
+      "description_rows": [
+        {
+          "Parameters": "Dataset",
+          "Notion": "-",
+          "Description": "The title of the bakery production dataset"
+        },
+        {
+          "Parameters": "machine_id",
+          "Notion": "M",
+          "Description": "The id for machines"
+        },
+        {
+          "Parameters": "machine_name",
+          "Notion": "-",
+          "Description": "The name of the corresponding machines"
+        },
+        {
+          "Parameters": "machine_category",
+          "Notion": "-",
+          "Description": "Machines of the same functionalities are identified, so that one of them can be chosen."
+        },
+        {
+          "Parameters": "employee_id",
+          "Notion": "E",
+          "Description": "The id for employees"
+        },
+        {
+          "Parameters": "shift_start",
+          "Notion": NaN,
+          "Description": "The production time [min] when shift of an employee starts"
+        },
+        {
+          "Parameters": "shift_end",
+          "Notion": NaN,
+          "Description": "The production time [min] when shift of an employee ends"
+        },
+        {
+          "Parameters": "pr_group",
+          "Notion": "PG",
+          "Description": "Product group number, grouped based on internal dependency of the products"
+        },
+        {
+          "Parameters": "product_id",
+          "Notion": "P",
+          "Description": "ID for the products within a group"
+        },
+        {
+          "Parameters": "bowl_time_WT",
+          "Notion": "WT",
+          "Description": "Start time difference between independent product and another product of the group"
+        },
+        {
+          "Parameters": "product_name",
+          "Notion": "-",
+          "Description": "Name of the product"
+        },
+        {
+          "Parameters": "batches",
+          "Notion": "-",
+          "Description": "Number of batches of a group. If the value is 2 for a group, all the products in this group have to produce two times. However, 2 groups must not be produced at the same time or one after one. In other words, batches of same group do not depend on each other. Therefore, multiple batches can be produced independently. However, products withing a batch of a group must follow the bowl time (WT)."
+        },
+        {
+          "Parameters": "stage_name",
+          "Notion": "-",
+          "Description": "Name of the processing stages"
+        },
+        {
+          "Parameters": "duration_PT",
+          "Notion": "PT",
+          "Description": "Processing time [min] for the stages"
+        },
+        {
+          "Parameters": "machines_ employees_ME",
+          "Notion": "M, E",
+          "Description": "Required machines or employees that can perform the task. Dough rest and cooling require no machines. For proofing no blockage is considered. It means proving chamber can operate as many product as possible to produce at a time. In such cases, the cells are kept empty. The term \"Manual\" indicates that the task has to performed by an employee. "
+        }
+      ]
+    },
+    "BK50": {
+      "file": "Babor M-Hitzmann B-2022-Small and medium-sized bakery production data for scheduling-BK50.xlsx",
+      "sha256": "4da64ed0fc5737f3dcb043a89256d59f7cb66aeabf8acd9d9d1a7cc4c9d08073",
+      "rows": 448,
+      "columns": 15,
+      "missing": {
+        "dataset": 447,
+        "machine_id": 424,
+        " machine_name": 424,
+        "machine_category": 424,
+        "employee_id": 438,
+        "shift_start": 438,
+        "shift_end": 438,
+        "machines_ employees_ME": 103
+      },
+      "unique_products": 6,
+      "unique_machines": 24,
+      "unique_stages": [
+        "Discharge refrigeretor",
+        "Baking ",
+        "Refining",
+        "Transfer to freezer",
+        "Dividing",
+        "Shaping",
+        "Proofing",
+        "Transfer to cooling room",
+        "Dividing ",
+        "Decoration",
+        "Kneading",
+        "Shaping ",
+        "Load baking",
+        "Discharge baking",
+        "Preparation",
+        "Kneading 1 ",
+        "Discharge Kneading 1 ",
+        "Rolling",
+        "Refrigeration",
+        "Transfer freezing ",
+        "Freezing 1 ",
+        "Dough rest",
+        "Proofing ",
+        "Refining ",
+        "Baking",
+        "Dough rest ",
+        "Transfer to freezing",
+        "Dough Rest ",
+        "Cooling",
+        "Packaging",
+        "Cutting and forming",
+        "Kneading ",
+        "Molding ",
+        "forming and shaping",
+        "Discharge Baking",
+        "Kneader",
+        "DoughRest",
+        "Storing",
+        "Discharge Kneading ",
+        "Doug rest",
+        "Fermentation",
+        "Load Baking ",
+        "Discharge Baking ",
+        "Cooling ",
+        "Discharge kneading",
+        "Transfer to long fermentation",
+        "Bring fermented dough - old",
+        "Moulding",
+        "Load Baking",
+        "Boxing",
+        "Transfer to storage",
+        "preparation",
+        "DIviding",
+        "Freezing",
+        "Storage",
+        "Kneading discharge"
+      ],
+      "total_batches": 677,
+      "duration_PT_summary": {
+        "count": 448.0,
+        "mean": 24.83,
+        "std": 29.76,
+        "min": 1.0,
+        "25%": 4.0,
+        "50%": 12.0,
+        "75%": 40.0,
+        "max": 300.0
+      },
+      "description_rows": [
+        {
+          "Parameters": "Dataset",
+          "Notion": "-",
+          "Description": "The title of the bakery production dataset"
+        },
+        {
+          "Parameters": "machine_id",
+          "Notion": "M",
+          "Description": "The id for machines"
+        },
+        {
+          "Parameters": "machine_name",
+          "Notion": "-",
+          "Description": "The name of the corresponding machines"
+        },
+        {
+          "Parameters": "machine_category",
+          "Notion": "-",
+          "Description": "Machines of the same functionalities are identified, so that one of them can be chosen."
+        },
+        {
+          "Parameters": "employee_id",
+          "Notion": "E",
+          "Description": "The id for employees"
+        },
+        {
+          "Parameters": "shift_start",
+          "Notion": NaN,
+          "Description": "The production time [min] when shift of an employee starts"
+        },
+        {
+          "Parameters": "shift_end",
+          "Notion": NaN,
+          "Description": "The production time [min] when shift of an employee ends"
+        },
+        {
+          "Parameters": "pr_group",
+          "Notion": "PG",
+          "Description": "Product group number, grouped based on internal dependency of the products"
+        },
+        {
+          "Parameters": "product_id",
+          "Notion": "P",
+          "Description": "ID for the products within a group"
+        },
+        {
+          "Parameters": "bowl_time_WT",
+          "Notion": "WT",
+          "Description": "Start time difference between independent product and another product of the group"
+        },
+        {
+          "Parameters": "product_name",
+          "Notion": "-",
+          "Description": "Name of the product"
+        },
+        {
+          "Parameters": "batches",
+          "Notion": "-",
+          "Description": "Number of batches of a group. If the value is 2 for a group, all the products in this group have to produce two times. However, 2 groups must not be produced at the same time or one after one. In other words, batches of same group do not depend on each other. Therefore, multiple batches can be produced independently. However, products withing a batch of a group must follow the bowl time (WT)."
+        },
+        {
+          "Parameters": "stage_name",
+          "Notion": "-",
+          "Description": "Name of the processing stages"
+        },
+        {
+          "Parameters": "duration_PT",
+          "Notion": "PT",
+          "Description": "Processing time [min] for the stages"
+        },
+        {
+          "Parameters": "machines_ employees_ME",
+          "Notion": "M, E",
+          "Description": "Required machines or employees that can perform the task. Dough rest and cooling require no machines. For proofing no blockage is considered. It means proving chamber can operate as many product as possible to produce at a time. In such cases, the cells are kept empty. The term \"Manual\" indicates that the task has to performed by an employee. "
+        }
+      ]
+    }
+  },
+  "itac_food_beverage": {
+    "file": "ITAC_Database_20261124.xlsx",
+    "sha256": "01e993603e185643fcbc26a397e944d7d82e5111c0af28bde6d6401e3b91aa2f",
+    "total_assess_rows": 23081,
+    "total_recc_rows": 171126,
+    "fb_naics_311_312_assess_rows": 1619,
+    "fb_naics_311_312_recc_rows": 12692,
+    "naics_top_subsectors": {
+      "3121": 302,
+      "3119": 262,
+      "3118": 211,
+      "3114": 200,
+      "3116": 187,
+      "3115": 185,
+      "3112": 85,
+      "3111": 74,
+      "3113": 55,
+      "3117": 44
+    },
+    "fiscal_year_range": [
+      2002,
+      2026
+    ],
+    "assess_columns_sample": [
+      "ID",
+      "CENTER",
+      "FY",
+      "SIC",
+      "NAICS",
+      "STATE",
+      "SALES",
+      "EMPLOYEES",
+      "PLANT_AREA",
+      "PRODUCTS",
+      "PRODUNITS",
+      "PRODLEVEL",
+      "PRODHOURS",
+      "RECC_COUNT_recc",
+      "EC_plant_cost",
+      "EC_plant_usage",
+      "ED_plant_cost",
+      "ED_plant_usage",
+      "EF_plant_cost",
+      "E2_plant_cost",
+      "E2_plant_usage",
+      "E3_plant_cost",
+      "E3_plant_usage",
+      "E4_plant_cost",
+      "E4_plant_usage"
+    ],
+    "recc_columns_sample": [
+      "SUPERID",
+      "ID",
+      "AR_NUMBER",
+      "APPCODE",
+      "ARC2",
+      "IMPSTATUS",
+      "IMPCOST",
+      "PSOURCCODE",
+      "PCONSERVED",
+      "PSOURCONSV",
+      "PSAVED",
+      "SSOURCCODE",
+      "SCONSERVED",
+      "SSOURCONSV",
+      "SSAVED",
+      "TSOURCCODE",
+      "TCONSERVED",
+      "TSOURCONSV",
+      "TSAVED",
+      "QSOURCCODE",
+      "QCONSERVED",
+      "QSOURCONSV",
+      "QSAVED",
+      "REBATE",
+      "INCREMNTAL"
+    ],
+    "implemented_recc_count": 5461
+  }
+}

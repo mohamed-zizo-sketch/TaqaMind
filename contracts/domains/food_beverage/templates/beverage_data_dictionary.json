@@ -1,0 +1,121 @@
+{
+  "domain_id": "food_beverage",
+  "process_id": "beverage",
+  "task_id": "pre_production_waste_l",
+  "dataset_id": "food_beverage_beverage_waste_v1",
+  "contract_version": "1.0.0",
+  "target": {
+    "name": "waste_quantity_l",
+    "unit": "L",
+    "data_type": "float",
+    "confirmation_status": "unconfirmed"
+  },
+  "business_keys": [
+    "factory_id",
+    "batch_id"
+  ],
+  "grouping_columns": [
+    "batch_id"
+  ],
+  "time_column": "production_timestamp",
+  "features": [
+    {
+      "name": "factory_id",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "required": true,
+      "availability": "static",
+      "aliases": [
+        "plant_id"
+      ]
+    },
+    {
+      "name": "batch_id",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "order_id"
+      ]
+    },
+    {
+      "name": "production_timestamp",
+      "role": "timestamp",
+      "data_type": "datetime",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "scheduled_date"
+      ]
+    },
+    {
+      "name": "production_line_id",
+      "role": "predictor",
+      "data_type": "category",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "line_id"
+      ]
+    },
+    {
+      "name": "product_category",
+      "role": "predictor",
+      "data_type": "category",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "beverage_style"
+      ]
+    },
+    {
+      "name": "planned_batch_volume_l",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "L",
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "planned_volume_l",
+        "batch_volume_l"
+      ]
+    },
+    {
+      "name": "planned_processing_temp_c",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "degC",
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "setpoint_temp_c"
+      ]
+    },
+    {
+      "name": "planned_processing_duration_min",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "min",
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "cycle_time_min"
+      ]
+    },
+    {
+      "name": "target_ph_level",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "pH",
+      "required": false,
+      "availability": "pre_production",
+      "aliases": []
+    }
+  ]
+}
