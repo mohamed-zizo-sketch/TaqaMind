@@ -318,11 +318,18 @@ class FoodBeveragePipeline:
                 raise ValueError(
                     f"Prediction dataset must not include the target column(s): {leaked_targets}"
                 )
+        confirmed_entries = tuple(
+            entry.model_copy(update={"source_unit": entry.canonical_unit})
+            if entry.canonical_unit is not None and entry.source_unit is None
+            else entry
+            for entry in proposal.entries
+        )
+        confirmed_proposal = proposal.model_copy(update={"entries": confirmed_entries})
         confirmed_cols = tuple(
-            e.source_column for e in proposal.entries if e.requires_confirmation
+            e.source_column for e in confirmed_entries if e.requires_confirmation
         )
         approved = ApprovedMapping(
-            proposal=proposal,
+            proposal=confirmed_proposal,
             approved_by="food_beverage_pipeline",
             confirmed_source_columns=confirmed_cols,
         )
