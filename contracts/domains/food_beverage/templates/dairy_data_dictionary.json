@@ -1,0 +1,111 @@
+{
+  "domain_id": "food_beverage",
+  "process_id": "dairy",
+  "task_id": "pre_production_waste_kg",
+  "dataset_id": "food_beverage_dairy_waste_v1",
+  "contract_version": "1.0.0",
+  "target": {
+    "name": "waste_quantity_kg",
+    "unit": "kg",
+    "data_type": "float",
+    "confirmation_status": "unconfirmed"
+  },
+  "business_keys": [
+    "factory_id",
+    "batch_id"
+  ],
+  "grouping_columns": [
+    "batch_id"
+  ],
+  "time_column": "production_timestamp",
+  "features": [
+    {
+      "name": "factory_id",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "required": true,
+      "availability": "static",
+      "aliases": [
+        "plant_id"
+      ]
+    },
+    {
+      "name": "batch_id",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "order_id"
+      ]
+    },
+    {
+      "name": "production_timestamp",
+      "role": "timestamp",
+      "data_type": "datetime",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "scheduled_date"
+      ]
+    },
+    {
+      "name": "production_line_id",
+      "role": "predictor",
+      "data_type": "category",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "line_id"
+      ]
+    },
+    {
+      "name": "product_category",
+      "role": "predictor",
+      "data_type": "category",
+      "unit": null,
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "dairy_product"
+      ]
+    },
+    {
+      "name": "planned_batch_quantity_kg",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "kg",
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "planned_qty_kg"
+      ]
+    },
+    {
+      "name": "planned_processing_temp_c",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "degC",
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "pasteurization_temp_c"
+      ]
+    },
+    {
+      "name": "planned_processing_duration_min",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "min",
+      "required": true,
+      "availability": "pre_production",
+      "aliases": [
+        "holding_time_min"
+      ]
+    }
+  ]
+}
