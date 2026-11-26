@@ -324,3 +324,47 @@ def test_record_lineage_matching_versioning_and_membership(tmp_path: Path):
     )
     with pytest.raises(RegistryConflictError):
         lin_reg.register_identity(scope=scope, identity=dup_id)
+
+
+def test_indexed_lineage_lookup_scales_for_large_factory_history(tmp_path: Path) -> None:
+    import time
+
+    lin_reg = LocalRecordLineageRegistry(tmp_path / "reg")
+    scope = RecordScope(
+        factory_id=uuid4(),
+        domain="textile",
+        process="weaving",
+        dataset_id="weaving_batches",
+        identity_namespace="production_record",
+    )
+
+    total_records = 300
+    keys: list[str] = []
+    for idx in range(total_records):
+        bkey = sha256(f"REC-{idx:05d}".encode()).hexdigest()
+        csha = sha256(f"CONTENT-{idx:05d}".encode()).hexdigest()
+        keys.append(bkey)
+        ident = RecordIdentity(
+            scope=scope,
+            business_key_sha256=bkey,
+            status=RecordIdentityStatus.CONFIRMED,
+        )
+        lin_reg.register_identity(scope=scope, identity=ident)
+        ver = RecordVersion(
+            identity=ident,
+            content_sha256=csha,
+            source_dataset_revision_id=uuid4(),
+        )
+        lin_reg.register_version(scope=scope, version=ver)
+
+    started = time.perf_counter()
+    for idx in range(total_records):
+        res = lin_reg.match(
+            scope=scope,
+            business_key_sha256=keys[idx],
+            content_sha256=sha256(f"CONTENT-{idx:05d}".encode()).hexdigest(),
+            content_fingerprint_version="1.0.0",
+        )
+        assert res.status == RecordMatchStatus.EXACT_MATCH
+    elapsed = time.perf_counter() - started
+    assert elapsed < 5.0

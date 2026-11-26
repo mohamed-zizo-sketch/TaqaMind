@@ -1,5 +1,7 @@
 """Local filesystem implementation of RecordLineageRegistry."""
 
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 from uuid import UUID
 
@@ -70,11 +72,104 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
     def _scope_lock(self, scope: RecordScope) -> Path:
         return safe_resolve(self._scope_dir(scope), ".scope.lock")
 
-    def _load_all_identities(self, scope: RecordScope) -> list[RecordIdentity]:
-        return iter_json_models(
-            safe_resolve(self._scope_dir(scope), "identities"),
-            RecordIdentity,
+    def _index_db_path(self, scope: RecordScope) -> Path:
+        return safe_resolve(self._scope_dir(scope), "index.sqlite3")
+
+    def _connect_index(self, scope: RecordScope) -> sqlite3.Connection:
+        db_path = self._index_db_path(scope)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path), timeout=15.0)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS identities (
+                record_id TEXT PRIMARY KEY,
+                business_key_sha256 TEXT,
+                status TEXT NOT NULL,
+                identity_json TEXT NOT NULL
+            )
+            """
         )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_identities_biz_sha
+            ON identities (business_key_sha256)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS versions (
+                record_version_id TEXT PRIMARY KEY,
+                record_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                version_json TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_versions_record_num
+            ON versions (record_id, version_number)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_versions_content_sha
+            ON versions (content_sha256)
+            """
+        )
+        self._backfill_index_if_empty(conn, scope)
+        conn.commit()
+        return conn
+
+    def _backfill_index_if_empty(
+        self, conn: sqlite3.Connection, scope: RecordScope
+    ) -> None:
+        id_count = conn.execute("SELECT COUNT(*) FROM identities").fetchone()[0]
+        if id_count == 0:
+            identities_dir = safe_resolve(self._scope_dir(scope), "identities")
+            for item in iter_json_models(identities_dir, RecordIdentity):
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO identities
+                    (record_id, business_key_sha256, status, identity_json)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        str(item.record_id),
+                        item.business_key_sha256,
+                        item.status.value,
+                        item.model_dump_json(),
+                    ),
+                )
+        ver_count = conn.execute("SELECT COUNT(*) FROM versions").fetchone()[0]
+        if ver_count == 0:
+            versions_dir = safe_resolve(self._scope_dir(scope), "versions")
+            for ver in iter_json_models(versions_dir, RecordVersion):
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO versions
+                    (record_version_id, record_id, version_number, content_sha256, version_json)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(ver.record_version_id),
+                        str(ver.identity.record_id),
+                        ver.version_number,
+                        ver.content_sha256,
+                        ver.model_dump_json(),
+                    ),
+                )
+
+    def _find_identities_by_business_key(
+        self, scope: RecordScope, business_key_sha256: SHA256Digest
+    ) -> list[RecordIdentity]:
+        with closing(self._connect_index(scope)) as conn:
+            rows = conn.execute(
+                "SELECT identity_json FROM identities WHERE business_key_sha256 = ?",
+                (business_key_sha256,),
+            ).fetchall()
+        return [RecordIdentity.model_validate_json(row[0]) for row in rows]
 
     def match(
         self,
@@ -90,11 +185,7 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                 reason="Business key fingerprint is unavailable; identity requires review.",
             )
 
-        candidates = [
-            identity
-            for identity in self._load_all_identities(scope)
-            if identity.business_key_sha256 == business_key_sha256
-        ]
+        candidates = self._find_identities_by_business_key(scope, business_key_sha256)
 
         if not candidates:
             return RecordMatchResult(status=RecordMatchStatus.NEW_RECORD)
@@ -162,17 +253,34 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                     "Conflicting metadata for existing record identity."
                 )
 
-            if identity.eligible_for_automatic_matching:
-                for existing in self._load_all_identities(scope):
-                    if (
-                        existing.eligible_for_automatic_matching
-                        and existing.business_key_sha256 == identity.business_key_sha256
-                    ):
+            if (
+                identity.eligible_for_automatic_matching
+                and identity.business_key_sha256 is not None
+            ):
+                for existing in self._find_identities_by_business_key(
+                    scope, identity.business_key_sha256
+                ):
+                    if existing.eligible_for_automatic_matching:
                         raise RegistryConflictError(
                             "Business key fingerprint already belongs to a confirmed identity."
                         )
 
             atomic_write_text(path, identity.model_dump_json(indent=2))
+            with closing(self._connect_index(scope)) as conn:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO identities
+                    (record_id, business_key_sha256, status, identity_json)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        str(identity.record_id),
+                        identity.business_key_sha256,
+                        identity.status.value,
+                        identity.model_dump_json(),
+                    ),
+                )
+                conn.commit()
             return identity
 
     def register_version(
@@ -244,6 +352,22 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                     raise RegistryConflictError(str(exc)) from exc
 
             atomic_write_text(version_path, version.model_dump_json(indent=2))
+            with closing(self._connect_index(scope)) as conn:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO versions
+                    (record_version_id, record_id, version_number, content_sha256, version_json)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(version.record_version_id),
+                        str(version.identity.record_id),
+                        version.version_number,
+                        version.content_sha256,
+                        version.model_dump_json(),
+                    ),
+                )
+                conn.commit()
             return version
 
     def get_identity(
@@ -285,14 +409,16 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
         record_id: UUID,
     ) -> tuple[RecordVersion, ...]:
         self.get_identity(scope=scope, record_id=record_id)
-        versions_dir = safe_resolve(self._scope_dir(scope), "versions")
-        versions = [
-            item
-            for item in iter_json_models(versions_dir, RecordVersion)
-            if item.identity.record_id == record_id
-        ]
-        versions.sort(key=lambda item: item.version_number)
-        return tuple(versions)
+        with closing(self._connect_index(scope)) as conn:
+            rows = conn.execute(
+                """
+                SELECT version_json FROM versions
+                WHERE record_id = ?
+                ORDER BY version_number ASC
+                """,
+                (str(record_id),),
+            ).fetchall()
+        return tuple(RecordVersion.model_validate_json(row[0]) for row in rows)
 
     def register_membership(
         self,
