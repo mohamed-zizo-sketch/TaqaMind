@@ -1,12 +1,12 @@
 {
   "domain_id": "food_beverage",
   "branch": "feature/food_beverage/pipeline-integration",
-  "baseline_core_commit_sha": "d9cdb911d094f49c887d223144746b2acad462c5",
+  "baseline_core_commit_sha": "3e189dd",
   "supported_processes": ["bakery", "dairy", "beverage"],
   "supported_tasks": [
-    "bakery.pre_production_waste_kg",
-    "dairy.pre_production_waste_kg",
-    "beverage.pre_production_waste_l"
+    "food_beverage_bakery_waste_v1",
+    "food_beverage_dairy_waste_v1",
+    "food_beverage_beverage_waste_v1"
   ],
   "contract_versions": {
     "domain": "1.0.0",
@@ -35,17 +35,33 @@
     "runtime_artifacts": "artifacts/food_beverage/"
   },
   "test_suite_location": "tests/domains/food_beverage/",
-  "temporary_adapters": [
-    "src/taqamind/domains/food_beverage/adapters/storage.py",
-    "src/taqamind/domains/food_beverage/adapters/ingestion.py",
-    "src/taqamind/domains/food_beverage/adapters/mapping.py",
-    "src/taqamind/domains/food_beverage/adapters/validation.py",
-    "src/taqamind/domains/food_beverage/adapters/lineage.py",
-    "src/taqamind/domains/food_beverage/adapters/readiness_and_splitting.py",
-    "src/taqamind/domains/food_beverage/adapters/training_and_evaluation.py",
-    "src/taqamind/domains/food_beverage/adapters/model_registry.py",
-    "src/taqamind/domains/food_beverage/adapters/prediction.py"
+  "core_engines_wired_directly": [
+    "taqamind.core.registry.LocalDatasetArtifactStorage",
+    "taqamind.core.registry.LocalModelArtifactStorage",
+    "taqamind.core.registry.LocalDatasetRegistry",
+    "taqamind.core.ingestion.CsvDataIngestion",
+    "taqamind.core.profiling.PandasDataProfiler",
+    "taqamind.core.mapping.DeterministicColumnMapper",
+    "taqamind.core.validation.ContractSemanticValidator",
+    "taqamind.core.lineage.LocalRecordLineageRegistry",
+    "taqamind.core.preprocessing.ContractDataCleaner",
+    "taqamind.core.preprocessing.TabularPreprocessor",
+    "taqamind.core.feature_engineering.DeterministicFeatureEngineer"
   ],
+  "temporary_adapters": [
+    "src/taqamind/domains/food_beverage/adapters/_store.py",
+    "src/taqamind/domains/food_beverage/adapters/unit_mapper.py",
+    "src/taqamind/domains/food_beverage/adapters/membership.py",
+    "src/taqamind/domains/food_beverage/adapters/readiness_splitting.py",
+    "src/taqamind/domains/food_beverage/adapters/data_access_training.py",
+    "src/taqamind/domains/food_beverage/adapters/model_registry_prediction.py"
+  ],
+  "verification_results": {
+    "domain_pytest": "18 passed (92% coverage on taqamind.domains.food_beverage)",
+    "ruff_check": "All checks passed (0 errors)",
+    "repo_pytest": "832 passed (test_artifact_storage 9/9 passed with --basetemp=D:\\tmpt avoiding Windows MAX_PATH)",
+    "cli_smoke_test": "help, template, and synthetic train --synthetic-confirm exited 0"
+  },
   "unresolved_blockers": [
     "No public dataset in data/food_beverage/raw/ provides factory-confirmed pre-production batch inputs paired with unit-verified avoidable waste targets; production training remains gated on TargetConfirmation(status=CONFIRMED)."
   ]
