@@ -11,6 +11,7 @@ from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import (
     DatasetPurpose,
     DataType,
+    FeatureAvailability,
     FeatureOrigin,
     IssueImpact,
     PipelineStage,
@@ -164,13 +165,24 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                     )
                 )
 
-        # Topologically order derived features so chained derivations execute safely.
+        # Topologically order derived features and detect dependency cycles.
         derived_features = [
             feature
             for feature in contract.features
             if feature.origin == FeatureOrigin.DERIVED
         ]
-        ordered_derived = self._topological_sort(derived_features)
+        ordered_derived, cycle_names = self._topological_sort(derived_features)
+        if cycle_names:
+            issues.append(
+                ValidationIssue(
+                    code="DERIVED_FEATURE_DEPENDENCY_CYCLE",
+                    stage=PipelineStage.FEATURE_ENGINEERING,
+                    severity=ValidationSeverity.CRITICAL,
+                    impact=IssueImpact.BLOCKING,
+                    message="Circular dependency detected among derived features.",
+                    columns=tuple(cycle_names),
+                )
+            )
 
         for feature in ordered_derived:
             if (
@@ -193,10 +205,33 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                 )
                 continue
 
-            if feature.name in engineered_df.columns:
+            post_prod_deps = tuple(
+                dep
+                for dep in deps
+                if dep in column_map
+                and column_map[dep].availability == FeatureAvailability.POST_PRODUCTION
+                and feature.availability == FeatureAvailability.PRE_PRODUCTION
+            )
+            if post_prod_deps:
+                issues.append(
+                    ValidationIssue(
+                        code="DERIVED_FEATURE_AVAILABILITY_LEAKAGE",
+                        stage=PipelineStage.FEATURE_ENGINEERING,
+                        severity=ValidationSeverity.CRITICAL,
+                        impact=IssueImpact.BLOCKING,
+                        message=(
+                            f"Pre-production derived feature '{feature.name}' depends on "
+                            "post-production features."
+                        ),
+                        columns=post_prod_deps,
+                    )
+                )
                 continue
 
             spec = self._specs.get(feature.name)
+            if feature.name in engineered_df.columns and spec is None:
+                continue
+
             if spec is None:
                 if feature.required or context.purpose == DatasetPurpose.PREDICTION:
                     issues.append(
@@ -232,8 +267,26 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                 )
                 continue
 
-            computed = spec.compute(engineered_df)
-            if len(computed) != len(engineered_df):
+            # Restrict compute input strictly to declared dependencies (AUD-003).
+            dep_frame = engineered_df.loc[:, list(feature.derived_from)].copy()
+            computed = spec.compute(dep_frame)
+            if not isinstance(computed, pd.Series):
+                issues.append(
+                    ValidationIssue(
+                        code="DERIVED_FEATURE_INVALID_TYPE",
+                        stage=PipelineStage.FEATURE_ENGINEERING,
+                        severity=ValidationSeverity.ERROR,
+                        impact=IssueImpact.BLOCKING,
+                        message=(
+                            f"Derived feature '{feature.name}' must return a pandas Series."
+                        ),
+                        columns=(feature.name,),
+                    )
+                )
+                continue
+            if len(computed) != len(engineered_df) or not computed.index.equals(
+                engineered_df.index
+            ):
                 issues.append(
                     ValidationIssue(
                         code="DERIVED_FEATURE_LENGTH_MISMATCH",
@@ -241,7 +294,7 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                         severity=ValidationSeverity.ERROR,
                         impact=IssueImpact.BLOCKING,
                         message=(
-                            f"Derived feature '{feature.name}' produced wrong row count."
+                            f"Derived feature '{feature.name}' produced wrong row count or index."
                         ),
                         columns=(feature.name,),
                     )
@@ -324,19 +377,28 @@ class DeterministicFeatureEngineer(FeatureEngineer):
         )
 
     @staticmethod
-    def _topological_sort(features: list) -> list:
+    def _topological_sort(features: list) -> tuple[list, list[str]]:
         by_name = {f.name: f for f in features}
-        visited: set[str] = set()
+        state: dict[str, int] = {}  # 0/absent=unvisited, 1=visiting, 2=visited
         ordered: list = []
+        cycles: list[str] = []
 
         def visit(name: str) -> None:
-            if name in visited or name not in by_name:
+            if name not in by_name:
                 return
-            visited.add(name)
+            st = state.get(name, 0)
+            if st == 2:
+                return
+            if st == 1:
+                if name not in cycles:
+                    cycles.append(name)
+                return
+            state[name] = 1
             for dep in by_name[name].derived_from:
                 visit(dep)
+            state[name] = 2
             ordered.append(by_name[name])
 
         for feature in features:
             visit(feature.name)
-        return ordered
+        return ordered, cycles

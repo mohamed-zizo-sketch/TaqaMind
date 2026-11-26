@@ -44,8 +44,10 @@ def locked_path(
                     os.O_CREAT | os.O_EXCL | os.O_RDWR,
                 )
                 break
-            except FileExistsError:
+            except (FileExistsError, PermissionError) as exc:
                 if time.monotonic() >= deadline:
+                    if isinstance(exc, PermissionError):
+                        raise
                     raise TimeoutError(
                         f"Timed out waiting for lock '{resolved.name}'."
                     ) from None

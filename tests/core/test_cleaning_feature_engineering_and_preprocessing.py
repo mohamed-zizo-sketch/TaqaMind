@@ -482,3 +482,85 @@ def test_cleaner_detects_whitespace_normalization_key_collision(tmp_path: Path) 
     assert any(
         i.code == "WHITESPACE_NORMALIZATION_KEY_COLLISION" for i in clean_res.report.issues
     )
+
+
+def test_feature_engineer_blocks_target_and_undeclared_column_access(tmp_path: Path) -> None:
+    """AUD-003: DerivedFeatureSpec.compute only receives columns declared in derived_from."""
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    csv_bytes = b"batch_id,planned_qty,machine_speed,shift_code,waste_qty\nB1,100.0,300.0,A,2.0\n"
+    raw_ref = ArtifactReference(
+        factory_id=context.factory_id,
+        format=ArtifactFormat.CSV,
+        content_sha256=sha256(csv_bytes).hexdigest(),
+        size_bytes=len(csv_bytes),
+    )
+    storage.put(factory_id=context.factory_id, reference=raw_ref, stream=BytesIO(csv_bytes))
+    raw_meta = DatasetMetadata(
+        revision_id=context.dataset_revision_id,
+        root_revision_id=context.dataset_revision_id,
+        factory_id=context.factory_id,
+        domain=context.domain,
+        process=context.process,
+        dataset_id=context.dataset_id,
+        contract_version=context.contract_version,
+        task_id=context.task_id,
+        task_version=context.task_version,
+        target_version=context.target_version,
+        source_file_sha256=raw_ref.content_sha256,
+        state=DatasetState.RAW,
+    )
+    ingested = CsvDataIngestion(storage).ingest(
+        context=context,
+        artifact=DatasetArtifact(metadata=raw_meta, reference=raw_ref),
+        contract=contract,
+    ).output_artifact
+    assert ingested is not None
+
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    entries = tuple(
+        e.model_copy(update={"source_unit": e.canonical_unit})
+        if e.canonical_unit is not None
+        else e
+        for e in proposal.entries
+    )
+    mapped = mapper.apply_mapping(
+        context=context,
+        artifact=ingested,
+        contract=contract,
+        mapping=ApprovedMapping(
+            proposal=proposal.model_copy(update={"entries": entries}),
+            approved_by="test",
+            confirmed_source_columns=tuple(e.source_column for e in entries),
+        ),
+    ).output_artifact
+    assert mapped is not None
+    cleaned = ContractDataCleaner(storage).clean(
+        context=context, artifact=mapped, contract=contract
+    ).output_artifact
+    assert cleaned is not None
+
+    seen_columns: list[list[str]] = []
+
+    def _leaky_compute(frame: pd.DataFrame) -> pd.Series:
+        seen_columns.append(list(frame.columns))
+        return frame["waste_qty"] * 2.0
+
+    leaky_spec = DerivedFeatureSpec(feature_name="speed_per_kg", compute=_leaky_compute)
+    with pytest.raises(KeyError, match="waste_qty"):
+        DeterministicFeatureEngineer(storage, derived_specs=(leaky_spec,)).engineer(
+            context=context, artifact=cleaned, contract=contract
+        )
+    assert seen_columns == [["machine_speed", "planned_qty"]]
+
+    bad_type_spec = DerivedFeatureSpec(
+        feature_name="speed_per_kg",
+        compute=lambda frame: [1.0] * len(frame),  # type: ignore[return-value, arg-type]
+    )
+    res = DeterministicFeatureEngineer(storage, derived_specs=(bad_type_spec,)).engineer(
+        context=context, artifact=cleaned, contract=contract
+    )
+    assert res.status == ExecutionStatus.BLOCKED
+    assert res.report is not None
+    assert any(i.code == "DERIVED_FEATURE_INVALID_TYPE" for i in res.report.issues)
