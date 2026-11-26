@@ -1,0 +1,6 @@
+# TaqaMind — Limitations and Research Gaps
+
+1. **Absence of Public Factory-Confirmed Batch Waste Data:** None of the pre-downloaded public datasets (`brewery_data.csv`, Norwegian Dairy Energy, US DOE ITAC, Babor & Hitzmann Bakery Scheduling) contain factory-confirmed pre-production batch inputs paired with unit-verified avoidable waste targets. Consequently, production training remains gated on `TargetConfirmation(status=CONFIRMED)`, and all automated ML verification uses explicitly labeled synthetic fixtures.
+2. **`brewery_data.csv` Benchmark Limitations:** Raw loss columns lack explicit units, pre-production predictors exhibit near-zero linear correlation (`|r| <= 0.055`), and `Volume_Produced`/`Brewhouse_Efficiency`/`Quality_Score` are post-production realizations.
+3. **Egyptian Factory Data Collection:** Real Egyptian factories must implement pre-production ERP/MES logging separated from post-production waste bin weighing, explicitly excluding baking moisture evaporation, rework, and recoverable by-products (whey, spent grain).
+4. **Future Modules (M2, M3, M4):** Energy forecasting, cost optimization, and bakery flow-shop scheduling are researched, schema-aligned, and dataset-audited, but their production optimization engines are scoped as future extensions per Section 2 of the Master Instructions.
