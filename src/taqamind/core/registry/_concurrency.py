@@ -30,7 +30,7 @@ def locked_path(
     poll_interval: float = 0.005,
 ) -> Iterator[None]:
     """Acquire both an in-process threading lock and an atomic O_EXCL lock file."""
-    resolved = lock_path.resolve()
+    resolved = Path(os.path.abspath(lock_path))
     resolved.parent.mkdir(parents=True, exist_ok=True)
     thread_lock = _get_thread_lock(resolved)
     deadline = time.monotonic() + timeout_seconds
