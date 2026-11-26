@@ -21,6 +21,7 @@ from taqamind.core.interfaces.lineage import (
     RecordScope,
     RecordVersion,
 )
+from taqamind.core.registry._concurrency import locked_path
 from taqamind.core.registry._json_store import (
     atomic_write_text,
     iter_json_models,
@@ -65,6 +66,9 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
         return safe_resolve(
             self._scope_dir(scope), "memberships", f"{dataset_revision_id}.json"
         )
+
+    def _scope_lock(self, scope: RecordScope) -> Path:
+        return safe_resolve(self._scope_dir(scope), ".scope.lock")
 
     def _load_all_identities(self, scope: RecordScope) -> list[RecordIdentity]:
         return iter_json_models(
@@ -148,27 +152,28 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                 "Record identity scope does not match requested scope."
             )
 
-        path = self._identity_path(scope, identity.record_id)
-        if path.is_file():
-            existing = load_json_model(path, RecordIdentity)
-            if existing == identity:
-                return existing
-            raise RegistryConflictError(
-                "Conflicting metadata for existing record identity."
-            )
+        with locked_path(self._scope_lock(scope)):
+            path = self._identity_path(scope, identity.record_id)
+            if path.is_file():
+                existing = load_json_model(path, RecordIdentity)
+                if existing == identity:
+                    return existing
+                raise RegistryConflictError(
+                    "Conflicting metadata for existing record identity."
+                )
 
-        if identity.eligible_for_automatic_matching:
-            for existing in self._load_all_identities(scope):
-                if (
-                    existing.eligible_for_automatic_matching
-                    and existing.business_key_sha256 == identity.business_key_sha256
-                ):
-                    raise RegistryConflictError(
-                        "Business key fingerprint already belongs to a confirmed identity."
-                    )
+            if identity.eligible_for_automatic_matching:
+                for existing in self._load_all_identities(scope):
+                    if (
+                        existing.eligible_for_automatic_matching
+                        and existing.business_key_sha256 == identity.business_key_sha256
+                    ):
+                        raise RegistryConflictError(
+                            "Business key fingerprint already belongs to a confirmed identity."
+                        )
 
-        atomic_write_text(path, identity.model_dump_json(indent=2))
-        return identity
+            atomic_write_text(path, identity.model_dump_json(indent=2))
+            return identity
 
     def register_version(
         self,
@@ -181,31 +186,47 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                 "Record version scope does not match requested scope."
             )
 
-        registered_identity = self.get_identity(
-            scope=scope,
-            record_id=version.identity.record_id,
-        )
-        if registered_identity != version.identity:
-            raise RegistryConflictError(
-                "Record version identity does not match registered identity."
+        with locked_path(self._scope_lock(scope)):
+            registered_identity = self.get_identity(
+                scope=scope,
+                record_id=version.identity.record_id,
+            )
+            if registered_identity != version.identity:
+                raise RegistryConflictError(
+                    "Record version identity does not match registered identity."
+                )
+
+            version_path = self._version_path(scope, version.record_version_id)
+            if version_path.is_file():
+                existing = load_json_model(version_path, RecordVersion)
+                if existing == version:
+                    return existing
+                raise RegistryConflictError(
+                    "Conflicting metadata for existing record_version_id."
+                )
+
+            existing_versions = self.get_versions(
+                scope=scope,
+                record_id=version.identity.record_id,
             )
 
-        version_path = self._version_path(scope, version.record_version_id)
-        if version_path.is_file():
-            existing = load_json_model(version_path, RecordVersion)
-            if existing == version:
-                return existing
-            raise RegistryConflictError(
-                "Conflicting metadata for existing record_version_id."
-            )
-
-        existing_versions = self.get_versions(
-            scope=scope,
-            record_id=version.identity.record_id,
-        )
-
-        if version.version_number == 1:
-            if existing_versions:
+            if version.version_number == 1:
+                if existing_versions:
+                    latest = existing_versions[-1]
+                    if (
+                        latest.content_sha256 == version.content_sha256
+                        and latest.content_fingerprint_version
+                        == version.content_fingerprint_version
+                    ):
+                        return latest
+                    raise RegistryConflictError(
+                        "Initial version already exists with different content."
+                    )
+            else:
+                if not existing_versions:
+                    raise RegistryNotFoundError(
+                        "Cannot register updated version without an existing initial version."
+                    )
                 latest = existing_versions[-1]
                 if (
                     latest.content_sha256 == version.content_sha256
@@ -213,32 +234,17 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                     == version.content_fingerprint_version
                 ):
                     return latest
-                raise RegistryConflictError(
-                    "Initial version already exists with different content."
-                )
-        else:
-            if not existing_versions:
-                raise RegistryNotFoundError(
-                    "Cannot register updated version without an existing initial version."
-                )
-            latest = existing_versions[-1]
-            if (
-                latest.content_sha256 == version.content_sha256
-                and latest.content_fingerprint_version
-                == version.content_fingerprint_version
-            ):
-                return latest
-            if version.previous_version_id != latest.record_version_id:
-                raise RegistryConflictError(
-                    "Updated record version must extend the latest registered version."
-                )
-            try:
-                version.validate_previous(latest)
-            except ValueError as exc:
-                raise RegistryConflictError(str(exc)) from exc
+                if version.previous_version_id != latest.record_version_id:
+                    raise RegistryConflictError(
+                        "Updated record version must extend the latest registered version."
+                    )
+                try:
+                    version.validate_previous(latest)
+                except ValueError as exc:
+                    raise RegistryConflictError(str(exc)) from exc
 
-        atomic_write_text(version_path, version.model_dump_json(indent=2))
-        return version
+            atomic_write_text(version_path, version.model_dump_json(indent=2))
+            return version
 
     def get_identity(
         self,
@@ -319,16 +325,17 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
             except ValueError as exc:
                 raise RegistryConflictError(str(exc)) from exc
 
-        path = self._membership_path(scope, manifest.dataset_revision_id)
-        if path.is_file():
-            existing = load_json_model(path, DatasetMembershipManifest)
-            if existing == manifest:
-                return
-            raise RegistryConflictError(
-                "Conflicting membership manifest for existing dataset revision."
-            )
+        with locked_path(self._scope_lock(scope)):
+            path = self._membership_path(scope, manifest.dataset_revision_id)
+            if path.is_file():
+                existing = load_json_model(path, DatasetMembershipManifest)
+                if existing == manifest:
+                    return
+                raise RegistryConflictError(
+                    "Conflicting membership manifest for existing dataset revision."
+                )
 
-        atomic_write_text(path, manifest.model_dump_json(indent=2))
+            atomic_write_text(path, manifest.model_dump_json(indent=2))
 
     def get_membership(
         self,

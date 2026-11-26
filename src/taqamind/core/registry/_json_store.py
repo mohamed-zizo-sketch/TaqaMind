@@ -7,12 +7,19 @@ from pathlib import Path
 from pydantic import BaseModel
 
 
+def _strip_long_prefix(path: Path) -> Path:
+    raw = str(path)
+    if raw.startswith("\\\\?\\"):
+        return Path(raw[4:])
+    return path
+
+
 def safe_resolve(root: Path, *parts: str) -> Path:
     """Resolve a relative path inside root and reject path traversal."""
     resolved_root = root.resolve()
     target = resolved_root.joinpath(*parts).resolve()
     try:
-        target.relative_to(resolved_root)
+        _strip_long_prefix(target).relative_to(_strip_long_prefix(resolved_root))
     except ValueError as exc:
         raise ValueError("Resolved registry path escapes root directory.") from exc
     return target
