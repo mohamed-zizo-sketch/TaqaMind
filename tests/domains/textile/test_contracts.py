@@ -141,11 +141,15 @@ def test_unit_aware_mapper_converts_meters_to_yards_and_blocks_unknown(tmp_path:
     artifact = ingested.output_artifact
     proposal = mapper.propose_mapping(context=context, artifact=artifact, contract=contract)
 
-    # Override source_unit to 'm' for planned_beam_length_yds.
+    # Override source_unit to 'm' for planned_beam_length_yds; confirm canonical units for others.
     entries = tuple(
         e.model_copy(update={"source_unit": "m"})
         if e.canonical_column == "planned_beam_length_yds"
-        else e
+        else (
+            e.model_copy(update={"source_unit": e.canonical_unit})
+            if e.canonical_unit is not None and e.source_unit is None
+            else e
+        )
         for e in proposal.entries
     )
     mod_proposal = proposal.model_copy(update={"entries": entries})
@@ -169,7 +173,11 @@ def test_unit_aware_mapper_converts_meters_to_yards_and_blocks_unknown(tmp_path:
     bad_entries = tuple(
         e.model_copy(update={"source_unit": "kg"})
         if e.canonical_column == "planned_beam_length_yds"
-        else e
+        else (
+            e.model_copy(update={"source_unit": e.canonical_unit})
+            if e.canonical_unit is not None and e.source_unit is None
+            else e
+        )
         for e in proposal.entries
     )
     bad_approved = ApprovedMapping(
@@ -238,14 +246,20 @@ def test_prediction_frame_succeeds_without_target_while_training_requires_target
     proposal = UnitAwareColumnMapperAdapter(storage).propose_mapping(
         context=pred_ctx, artifact=ingested.output_artifact, contract=contract
     )
+    entries = tuple(
+        e.model_copy(update={"source_unit": e.canonical_unit})
+        if e.canonical_unit is not None and e.source_unit is None
+        else e
+        for e in proposal.entries
+    )
     mapped = UnitAwareColumnMapperAdapter(storage).apply_mapping(
         context=pred_ctx,
         artifact=ingested.output_artifact,
         contract=contract,
         mapping=ApprovedMapping(
-            proposal=proposal,
+            proposal=proposal.model_copy(update={"entries": entries}),
             approved_by="test",
-            confirmed_source_columns=tuple(e.source_column for e in proposal.entries),
+            confirmed_source_columns=tuple(e.source_column for e in entries),
         ),
     )
     assert mapped.output_artifact is not None

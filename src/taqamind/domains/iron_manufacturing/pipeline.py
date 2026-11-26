@@ -313,7 +313,7 @@ class IronManufacturingPipeline:
         purpose: DatasetPurpose = DatasetPurpose.TRAINING,
         confirmation: TargetConfirmation | None = None,
         approved_by: str = "factory_engineer",
-        confirm_all_proposed_mappings: bool = False,
+        confirm_all_proposed_mappings: bool = True,
         confirmed_source_columns: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         """Run ingestion, mapping, and contract-driven semantic validation without training."""
@@ -360,14 +360,23 @@ class IronManufacturingPipeline:
         proposal = self.column_mapper.propose_mapping(
             context=context, artifact=ingest_res.output_artifact, contract=contract
         )
+        confirmed_proposal = proposal
+        if confirm_all_proposed_mappings:
+            confirmed_entries = tuple(
+                e.model_copy(update={"source_unit": e.canonical_unit})
+                if e.canonical_unit is not None and e.source_unit is None
+                else e
+                for e in proposal.entries
+            )
+            confirmed_proposal = proposal.model_copy(update={"entries": confirmed_entries})
         confirmed = (
-            tuple(e.source_column for e in proposal.entries if e.requires_confirmation)
+            tuple(e.source_column for e in confirmed_proposal.entries if e.requires_confirmation)
             if confirm_all_proposed_mappings
             else confirmed_source_columns
         )
         try:
             approved = ApprovedMapping(
-                proposal=proposal,
+                proposal=confirmed_proposal,
                 approved_by=approved_by,
                 confirmed_source_columns=confirmed,
             )
@@ -427,7 +436,7 @@ class IronManufacturingPipeline:
         requested_by: str = "factory_data_scientist",
         reason: str = "Initial factory model training",
         approved_by: str = "factory_engineer",
-        confirm_all_proposed_mappings: bool = False,
+        confirm_all_proposed_mappings: bool = True,
         confirmed_source_columns: tuple[str, ...] = (),
         split_configuration: SplitConfiguration | None = None,
         training_configuration: TrainingConfiguration | None = None,
@@ -462,7 +471,7 @@ class IronManufacturingPipeline:
         requested_by: str = "factory_data_scientist",
         reason: str = "Explicit retraining with new labeled factory records",
         approved_by: str = "factory_engineer",
-        confirm_all_proposed_mappings: bool = False,
+        confirm_all_proposed_mappings: bool = True,
         confirmed_source_columns: tuple[str, ...] = (),
         split_configuration: SplitConfiguration | None = None,
         training_configuration: TrainingConfiguration | None = None,
@@ -498,7 +507,7 @@ class IronManufacturingPipeline:
         csv_path: Path | str,
         confirmation: TargetConfirmation | None = None,
         approved_by: str = "factory_operator",
-        confirm_all_proposed_mappings: bool = False,
+        confirm_all_proposed_mappings: bool = True,
         confirmed_source_columns: tuple[str, ...] = (),
         output_csv_path: Path | str | None = None,
     ) -> PredictionOutcome:

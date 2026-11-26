@@ -541,14 +541,23 @@ class IronTrainingService:
         proposal = self._column_mapper.propose_mapping(
             context=context, artifact=ingest_res.output_artifact, contract=contract
         )
+        confirmed_proposal = proposal
+        if confirm_all_proposed_mappings:
+            confirmed_entries = tuple(
+                e.model_copy(update={"source_unit": e.canonical_unit})
+                if e.canonical_unit is not None and e.source_unit is None
+                else e
+                for e in proposal.entries
+            )
+            confirmed_proposal = proposal.model_copy(update={"entries": confirmed_entries})
         confirmed = (
-            tuple(e.source_column for e in proposal.entries if e.requires_confirmation)
+            tuple(e.source_column for e in confirmed_proposal.entries if e.requires_confirmation)
             if confirm_all_proposed_mappings
             else confirmed_source_columns
         )
         try:
             approved = ApprovedMapping(
-                proposal=proposal,
+                proposal=confirmed_proposal,
                 approved_by=approved_by,
                 confirmed_source_columns=confirmed,
             )

@@ -72,7 +72,19 @@ def _make_engineered_artifact(
     )
     from taqamind.core.interfaces import ApprovedMapping
 
-    approved = ApprovedMapping(proposal=prop, approved_by="tester")
+    entries = tuple(
+        e.model_copy(update={"source_unit": e.canonical_unit})
+        if e.canonical_unit is not None and e.source_unit is None
+        else e
+        for e in prop.entries
+    )
+    approved = ApprovedMapping(
+        proposal=prop.model_copy(update={"entries": entries}),
+        approved_by="tester",
+        confirmed_source_columns=tuple(
+            e.source_column for e in entries if e.requires_confirmation
+        ),
+    )
     mapped = pipeline.column_mapper.apply_mapping(
         context=ctx, artifact=ing.output_artifact, contract=contract, mapping=approved
     )

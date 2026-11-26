@@ -351,10 +351,16 @@ class TextilePipelineService:
         proposal = self.stores.mapper.propose_mapping(
             context=context, artifact=ingested.output_artifact, contract=active_contract
         )
+        entries = tuple(
+            e.model_copy(update={"source_unit": e.canonical_unit})
+            if e.canonical_unit is not None and e.source_unit is None
+            else e
+            for e in proposal.entries
+        )
         approved = ApprovedMapping(
-            proposal=proposal,
+            proposal=proposal.model_copy(update={"entries": entries}),
             approved_by=approved_by,
-            confirmed_source_columns=tuple(e.source_column for e in proposal.entries),
+            confirmed_source_columns=tuple(e.source_column for e in entries),
         )
         mapped = self.stores.mapper.apply_mapping(
             context=context,

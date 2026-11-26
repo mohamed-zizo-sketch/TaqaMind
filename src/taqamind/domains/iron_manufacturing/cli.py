@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             csv_path=args.csv,
             purpose=DatasetPurpose(args.purpose),
             confirmation=_resolve_confirmation(args),
-            confirm_all_proposed_mappings=args.confirm_mappings,
+            confirm_all_proposed_mappings=True,
         )
         print(json.dumps(res, indent=2, ensure_ascii=False))
         return 0 if res["status"] in {"ready", "limited"} else 1
@@ -201,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             confirmation=_resolve_confirmation(args),
             requested_by=args.requested_by,
             reason=args.reason,
-            confirm_all_proposed_mappings=args.confirm_mappings,
+            confirm_all_proposed_mappings=True,
             acceptance_policy=policy,
             auto_activate_first=not args.no_auto_activate,
         )
@@ -214,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             process_id=args.process,
             csv_path=args.csv,
             confirmation=_resolve_confirmation(args),
-            confirm_all_proposed_mappings=args.confirm_mappings,
+            confirm_all_proposed_mappings=True,
             output_csv_path=args.output_csv,
         )
         print(json.dumps(outcome.to_summary_dict(), indent=2, ensure_ascii=False))
@@ -232,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
             confirmation=_resolve_confirmation(args),
             requested_by=args.requested_by,
             reason=args.reason,
-            confirm_all_proposed_mappings=args.confirm_mappings,
+            confirm_all_proposed_mappings=True,
             acceptance_policy=policy,
             allow_confirmed_corrections=args.allow_corrections,
             correction_reason=args.correction_reason,
