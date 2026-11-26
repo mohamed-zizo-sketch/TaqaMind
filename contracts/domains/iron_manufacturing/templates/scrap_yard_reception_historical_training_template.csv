@@ -1,0 +1,4 @@
+scrap_delivery_id,supplier_group_id,entry_ts,supplier_code,scrap_grade_code,gross_delivery_mass_kg,warehouse_zone,transport_mode,total_contaminant_kg
+SY-00001,GRP-SUP_01-001,2026-01-01T06:00:00,SUP_01,ST01_HMS,24533.1,YARD_N,Rail car,355.53
+SY-00002,GRP-SUP_01-001,2026-01-01T08:00:00,SUP_01,ST01_HMS,37414.9,YARD_S,Truck,428.42
+SY-00003,GRP-SUP_01-001,2026-01-01T10:00:00,SUP_01,ST08_LIGHT,24809.3,YARD_N,Truck,1737.59

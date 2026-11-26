@@ -1,0 +1,353 @@
+[
+  {
+    "canonical_name": "scrap_delivery_id",
+    "display_name": "Scrap Delivery Ticket ID",
+    "description": "Unique business identifier for one incoming scrap vehicle delivery.",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "string",
+    "role": "identifier",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "delivery_id",
+      "ticket_id",
+      "weighbridge_id",
+      "رقم الشحنة",
+      "اذن الاستلام"
+    ],
+    "source_system": "Weighbridge System",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": true,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "supplier_group_id",
+    "display_name": "Supplier Group Key",
+    "description": "Supplier identifier used for group-aware splitting and leakage control (prevents memorizing single-supplier bursts across train/test).",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "string",
+    "role": "metadata",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "vendor_group_id",
+      "supplier_batch_group"
+    ],
+    "source_system": "ERP Procurement",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": true,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "entry_ts",
+    "display_name": "Weighbridge Entry Timestamp",
+    "description": "Timestamp when the scrap vehicle arrives at the entry weighbridge (t0).",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "datetime",
+    "role": "timestamp",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "entrydate",
+      "entry_date",
+      "planned_start_ts",
+      "تاريخ الدخول"
+    ],
+    "source_system": "Weighbridge System",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": true
+  },
+  {
+    "canonical_name": "supplier_code",
+    "display_name": "Scrap Supplier Code",
+    "description": "Categorical code identifying the supplying scrap yard or broker.",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "category",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "supplier",
+      "supplier_id",
+      "vendor_id",
+      "المورد"
+    ],
+    "source_system": "ERP Procurement",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "scrap_grade_code",
+    "display_name": "Declared Scrap Grade",
+    "description": "Commercial scrap grade code declared on the delivery manifest.",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "category",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "scraptype",
+      "scrap_type",
+      "درجة الخردة",
+      "صنف الخردة"
+    ],
+    "source_system": "Weighbridge Manifest",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "gross_delivery_mass_kg",
+    "display_name": "Delivery Scrap Mass",
+    "description": "Weighed delivery mass of the incoming scrap load (kg).",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "measured",
+    "unit": "kg",
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "delivery_weight_kg",
+      "truck_weight_kg",
+      "وزن الشحنة"
+    ],
+    "source_system": "Weighbridge Scale",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 200000.0,
+      "minimum_inclusive": false,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "warehouse_zone",
+    "display_name": "Assigned Yard Warehouse Zone",
+    "description": "Designated scrap yard bay or warehouse zone assigned at entry.",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "category",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "warehouse",
+      "yard_zone",
+      "المخزن"
+    ],
+    "source_system": "Yard Dispatch",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "transport_mode",
+    "display_name": "Delivery Transport Mode",
+    "description": "Transport modality delivering the scrap load (e.g., Truck, Rail car).",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "category",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "recorded",
+    "unit": null,
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [
+      "transport",
+      "vehicle_type",
+      "وسيلة النقل"
+    ],
+    "source_system": "Gate Log",
+    "derived_from": [],
+    "constraints": {
+      "minimum": null,
+      "maximum": null,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "delivery_mass_metric_ton",
+    "display_name": "Delivery Mass (metric tons)",
+    "description": "Exact SI conversion of gross_delivery_mass_kg / 1000.0.",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "float",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "derived",
+    "unit": "metric_ton",
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [],
+    "source_system": null,
+    "derived_from": [
+      "gross_delivery_mass_kg"
+    ],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 200.0,
+      "minimum_inclusive": false,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "entry_hour_of_day",
+    "display_name": "Entry Hour of Day",
+    "description": "Deterministic arrival hour (0-23) extracted from entry_ts.",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "integer",
+    "role": "predictor",
+    "availability": "pre_production",
+    "origin": "derived",
+    "unit": null,
+    "required": false,
+    "nullable": true,
+    "missing_policy": "impute",
+    "aliases": [],
+    "source_system": null,
+    "derived_from": [
+      "entry_ts"
+    ],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 23.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  },
+  {
+    "canonical_name": "total_contaminant_kg",
+    "display_name": "Total Non-Metallic Contaminant Mass",
+    "description": "Measured or deducted non-metallic contaminant mass (Soil + Water + Other) for one scrap delivery in kilograms.",
+    "process": "scrap_yard_reception",
+    "granularity": "one_scrap_delivery_vehicle",
+    "data_type": "float",
+    "role": "target",
+    "availability": "post_production",
+    "origin": "measured",
+    "unit": "kg",
+    "required": true,
+    "nullable": false,
+    "missing_policy": "reject",
+    "aliases": [
+      "contaminant_kg",
+      "اجمالي الشوائب"
+    ],
+    "source_system": "Scrap Yard Inspection",
+    "derived_from": [],
+    "constraints": {
+      "minimum": 0.0,
+      "maximum": 200000.0,
+      "minimum_inclusive": true,
+      "maximum_inclusive": true,
+      "allowed_values": null
+    },
+    "is_business_key": false,
+    "is_grouping_column": false,
+    "is_time_column": false
+  }
+]

@@ -1,0 +1,1439 @@
+domain_id: iron_manufacturing
+version: 1.0.0
+display_name: Iron & Steel Manufacturing
+description: Configurable industrial ML domain for Egyptian iron and steel facilities
+  (EAF primary meltshop, rebar hot rolling mill, and scrap yard reception). Current
+  executable ML scope is pre-production waste/scrap quantity prediction.
+processes:
+- process_id: eaf_meltshop
+  version: 1.0.0
+  display_name: Electric Arc Furnace (EAF) Primary Meltshop
+  description: Primary steelmaking melting of scrap and Direct Reduced Iron (DRI/HBI)
+    into liquid steel prior to secondary metallurgy and continuous casting.
+  tasks:
+  - task_id: eaf_metallic_waste_loss_prediction
+    version: 1.0.0
+    display_name: EAF Pre-Production Metallic Waste Prediction
+    description: Predict expected metallic waste loss (metric tons) for an EAF heat
+      using planned charge mix, DRI assays, recipe setpoints, and vessel age.
+    module: waste_management
+    task_type: regression
+    dataset_contract:
+      dataset_id: eaf_meltshop_heat_waste
+      version: 1.0.0
+      domain: iron_manufacturing
+      process: eaf_meltshop
+      description: Pre-production EAF primary meltshop heat dataset for metallic waste
+        loss prediction.
+      granularity: one_eaf_heat
+      features:
+      - name: heat_id
+        display_name: Heat Identifier
+        description: Unique business identifier for one EAF melting heat.
+        data_type: string
+        role: identifier
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - heat_no
+        - heat_number
+        - melt_id
+        - رقم الصبة
+        - كود الصبة
+        source_system: Level-2 MES
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: production_order_id
+        display_name: Production Order Identifier
+        description: Campaign or customer production order grouping sequential heats;
+          used for group-aware leakage-free splitting.
+        data_type: string
+        role: metadata
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - order_id
+        - work_order_id
+        - campaign_order_id
+        - امر الشغل
+        source_system: ERP
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_start_ts
+        display_name: Planned Heat Start Timestamp
+        description: Scheduled heat start timestamp prior to scrap basket charging
+          (t0).
+        data_type: datetime
+        role: timestamp
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - start_time
+        - heat_start_ts
+        - تاريخ الصبة
+        - وقت بداية الصبة
+        source_system: MES Scheduler
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: furnace_id
+        display_name: EAF Vessel Identifier
+        description: Physical electric arc furnace vessel asset identifier.
+        data_type: category
+        role: predictor
+        availability: static
+        origin: configured
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - eaf_id
+        - furnace_no
+        - رقم الفرن
+        source_system: MES Master Data
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: shift_code
+        display_name: Planned Shift Code
+        description: Scheduled plant operating shift for the heat.
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: null
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - shift
+        - shift_name
+        - الوردية
+        source_system: MES Calendar
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values:
+          - MORNING
+          - EVENING
+          - NIGHT
+        derived_from: []
+      - name: steel_grade_code
+        display_name: Target Steel Grade
+        description: Ordered steel metallurgy specification (e.g., B500DWR, B500B).
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - steel_grade
+        - grade_code
+        - alloy_grade
+        - رتبة الصلب
+        source_system: ERP / Metallurgy
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_scrap_mass_t
+        display_name: Planned Scrap Charge Mass
+        description: Planned total ferrous scrap mass loaded into charging baskets.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: metric_ton
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - scrap_mass_t
+        - planned_scrap_tons
+        - وزن الخردة المخطط
+        source_system: Scrap Yard Scale / MES
+        constraints:
+          minimum: 0.0
+          maximum: 300.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_dri_mass_t
+        display_name: Planned DRI / HBI Charge Mass
+        description: Planned Direct Reduced Iron or HBI mass scheduled for the heat.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: metric_ton
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - dri_mass_t
+        - planned_dri_tons
+        - وزن الاختزال المباشر
+        source_system: DRI Silo Plan / MES
+        constraints:
+          minimum: 0.0
+          maximum: 300.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_tap_mass_t
+        display_name: Planned Tap Mass
+        description: Target liquid steel tap weight ordered for the heat.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: metric_ton
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - target_tap_weight
+        - planned_tap_tons
+        - الوزن المستهدف للصبة
+        source_system: MES Heat Plan
+        constraints:
+          minimum: 0.0
+          maximum: 350.0
+          minimum_inclusive: false
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_scrap_grade_mix_code
+        display_name: Planned Scrap Grade Mix
+        description: Primary scrap grade classification for the scheduled charge.
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - scrap_mix_code
+        - scrap_class
+        - تصنيف الخردة
+        source_system: Scrap Yard Inventory
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: expected_scrap_contaminant_pct
+        display_name: Expected Scrap Contaminant Share
+        description: Pre-charge expected non-metallic dirt, moisture, and debris percentage
+          based on yard inspection or historical causal supplier prior (<= t0).
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: '%'
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - prior_scrap_dirt_pct
+        - expected_dirt_pct
+        - نسبة الشوائب المتوقعة
+        source_system: Yard Inspection
+        constraints:
+          minimum: 0.0
+          maximum: 25.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: dri_metallization_pct
+        display_name: DRI Metallization Percentage
+        description: Pre-charge LIMS assay ratio of metallic Fe to total Fe in DRI
+          lot.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: measured
+        unit: '%'
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - metallization_pct
+        - dri_met_pct
+        - نسبة التمعدن
+        source_system: DRP LIMS
+        constraints:
+          minimum: 70.0
+          maximum: 99.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: dri_gangue_pct
+        display_name: DRI Acidic Gangue Percentage
+        description: Pre-charge LIMS assay non-metallic oxide (SiO2 + Al2O3) share
+          in DRI.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: measured
+        unit: '%'
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - gangue_pct
+        - شوائب الاختزال
+        source_system: DRP LIMS
+        constraints:
+          minimum: 0.0
+          maximum: 15.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_hot_heel_mass_t
+        display_name: Planned Hot Heel Mass
+        description: Estimated liquid steel hot heel retained from the previous heat.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: metric_ton
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - hot_heel_t
+        - رصيد البوتقة الساخن
+        source_system: Meltshop Log
+        constraints:
+          minimum: 0.0
+          maximum: 40.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_lime_flux_kg
+        display_name: Planned Lime and Dolomite Flux
+        description: Planned CaO / dolomite flux mass in the Level-2 melting recipe.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: kg
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - lime_kg
+        - flux_kg
+        - كمية الجير المخططة
+        source_system: Level-2 Recipe
+        constraints:
+          minimum: 0.0
+          maximum: 20000.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_oxygen_nm3
+        display_name: Planned Oxygen Injection Volume
+        description: Planned oxygen lance and burner volume in the Level-2 melting
+          recipe.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: Nm3
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - oxygen_plan_nm3
+        - كمية الاكسجين المخططة
+        source_system: Level-2 Recipe
+        constraints:
+          minimum: 0.0
+          maximum: 15000.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: target_tap_temp_c
+        display_name: Target Tapping Temperature
+        description: Ordered liquid steel tapping temperature specification.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: degC
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - aim_tap_temp
+        - حرارة الصب المستهدفة
+        source_system: Metallurgy Spec
+        constraints:
+          minimum: 1520.0
+          maximum: 1720.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: refractory_lining_heat_age
+        display_name: Refractory Lining Age (Heats)
+        description: Number of completed heats since the last EAF refractory relining.
+        data_type: integer
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: heats
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - lining_age
+        - furnace_campaign_heat
+        - عمر التبطين الحراري
+        source_system: Maintenance Log
+        constraints:
+          minimum: 0.0
+          maximum: 5000.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_total_metallic_charge_t
+        display_name: Planned Total Metallic Charge
+        description: Deterministic sum of planned_scrap_mass_t and planned_dri_mass_t.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: metric_ton
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 500.0
+          minimum_inclusive: false
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_scrap_mass_t
+        - planned_dri_mass_t
+      - name: planned_dri_share_pct
+        display_name: Planned DRI Charge Share
+        description: Percentage of planned metallic charge supplied by DRI/HBI.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: '%'
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 100.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_dri_mass_t
+        - planned_total_metallic_charge_t
+      - name: planned_charge_to_tap_ratio
+        display_name: Planned Charge-to-Tap Ratio
+        description: Ratio of planned total metallic charge to planned liquid tap
+          mass.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: ratio
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.5
+          maximum: 2.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_total_metallic_charge_t
+        - planned_tap_mass_t
+      - name: planned_flux_kg_per_t_charge
+        display_name: Planned Flux Intensity
+        description: Planned lime/dolomite flux per metric ton of planned metallic
+          charge.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: kg/t
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 500.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_lime_flux_kg
+        - planned_total_metallic_charge_t
+      - name: planned_oxygen_nm3_per_t_charge
+        display_name: Planned Oxygen Intensity
+        description: Planned oxygen volume per metric ton of planned metallic charge.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: Nm3/t
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 200.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_oxygen_nm3
+        - planned_total_metallic_charge_t
+      - name: planned_expected_dirt_mass_t
+        display_name: Planned Expected Scrap Dirt Mass
+        description: Expected non-metallic mass from scrap dirt/moisture before charging.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: metric_ton
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 100.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_scrap_mass_t
+        - expected_scrap_contaminant_pct
+      target:
+        target_id: eaf_metallic_waste_loss
+        version: 1.0.0
+        feature:
+          name: metallic_waste_loss_t
+          display_name: Metallic Waste Loss
+          description: Measured metallic mass lost during EAF melting (FeO oxidation
+            to slag, EAF baghouse dust, and non-recoverable metallic loss) per heat.
+          data_type: float
+          role: target
+          availability: post_production
+          origin: measured
+          unit: metric_ton
+          required: true
+          nullable: false
+          missing_policy: reject
+          aliases:
+          - meltshop_waste_t
+          - yield_loss_t
+          - فاقد الصهر
+          - الهالك المعدني
+          source_system: Post-Tap Weighbridges
+          constraints:
+            minimum: 0.0
+            maximum: 100.0
+            minimum_inclusive: true
+            maximum_inclusive: true
+            allowed_values: null
+          derived_from: []
+        task_type: regression
+        target_kind: quantity
+        definition:
+          definition: Net non-recovered metallic mass loss per EAF heat, reconciled
+            from calibrated charge weighbridges and post-tap liquid steel ladle crane
+            scale.
+          granularity: one_eaf_heat
+          measurement_method: Post-tap mass balance (actual_total_metallic_charge_t
+            - actual_liquid_steel_tapped_t) after excluding credited recovered skulls.
+          included_components:
+          - slag_iron_oxide_loss
+          - eaf_baghouse_dust_loss
+          - non_recoverable_splash_loss
+          - scrap_non_metallic_contaminants
+          excluded_components:
+          - returned_scrap_inventory
+          - credited_reusable_ladle_skull
+          - hot_heel_retained_in_vessel
+        confirmation:
+          status: unconfirmed
+          confirmed_by: null
+          confirmed_at: null
+          notes: Awaiting Egyptian factory sign-off on hot-heel estimation, ladle-skull
+            crediting, and weighbridge calibration semantics.
+        derived_rate:
+          name: metallic_waste_rate_pct
+          numerator: metallic_waste_loss_t
+          denominator: planned_total_metallic_charge_t
+          granularity: one_eaf_heat
+          output_unit: '%'
+          multiplier: 100.0
+      prediction_context:
+        prediction_stage: pre_production
+        horizon_seconds: null
+        description: Prediction executed before scrap basket charging and DRI feeding
+          (t <= t0).
+      business_keys:
+      - heat_id
+      grouping_columns:
+      - production_order_id
+      time_column: planned_start_ts
+- process_id: rebar_hot_rolling
+  version: 1.0.0
+  display_name: Rebar Hot Rolling Mill
+  description: Hot rolling of continuous-cast steel billets through reheating furnace,
+    roughing/intermediate/slitting stands, and cooling bed into finished rebar.
+  tasks:
+  - task_id: rebar_rolling_waste_quantity_prediction
+    version: 1.0.0
+    display_name: Rebar Hot Rolling Pre-Production Waste Prediction
+    description: Predict expected total rolling waste quantity (kg) for a billet rolling
+      lot from diameter, slitting strands, billet mass, charging mode, and roll groove
+      age.
+    module: waste_management
+    task_type: regression
+    dataset_contract:
+      dataset_id: rebar_rolling_lot_waste
+      version: 1.0.0
+      domain: iron_manufacturing
+      process: rebar_hot_rolling
+      description: Pre-production rebar hot rolling lot dataset for total rolling
+        waste prediction.
+      granularity: one_rolling_campaign_lot
+      features:
+      - name: rolling_lot_id
+        display_name: Rolling Lot Identifier
+        description: Unique business identifier for one billet-to-rebar rolling campaign
+          lot.
+        data_type: string
+        role: identifier
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - lot_id
+        - campaign_id
+        - rolling_batch_id
+        - رقم التشغيلة
+        - رقم اللوط
+        source_system: Rolling MES
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: production_order_id
+        display_name: Production Order Identifier
+        description: Customer or campaign ERP order grouping multiple rolling lots.
+        data_type: string
+        role: metadata
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - order_id
+        - work_order_id
+        - امر الشغل
+        source_system: ERP
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_start_ts
+        display_name: Planned Lot Start Timestamp
+        description: Scheduled timestamp when billet lot enters the reheating furnace
+          (t0).
+        data_type: datetime
+        role: timestamp
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - start_time
+        - lot_date
+        - تاريخ التشغيل
+        source_system: Rolling MES
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: mill_line_id
+        display_name: Rolling Mill Line Identifier
+        description: Physical hot rolling mill line asset identifier.
+        data_type: category
+        role: predictor
+        availability: static
+        origin: configured
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - mill_id
+        - line_id
+        - خط الدرفلة
+        source_system: MES Master Data
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: steel_grade_code
+        display_name: Billet Steel Grade
+        description: Steel grade specification of the charged billets (e.g., B500DWR).
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - steel_grade
+        - grade_code
+        - رتبة الصلب
+        source_system: ERP / Metallurgy
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: rebar_diameter_mm
+        display_name: Target Rebar Diameter
+        description: Ordered finished rebar nominal diameter (mm).
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: mm
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - bar_diameter_mm
+        - diameter_mm
+        - قطر السيخ
+        source_system: Rolling Order Spec
+        constraints:
+          minimum: 6.0
+          maximum: 50.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_input_billet_mass_t
+        display_name: Planned Input Billet Mass
+        description: Total planned billet steel mass charged to the rolling lot (metric
+          tons).
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: metric_ton
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - billet_input_mass_t
+        - input_billet_tons
+        - وزن البيلت الداخل
+        source_system: Billet Yard Scale
+        constraints:
+          minimum: 0.0
+          maximum: 5000.0
+          minimum_inclusive: false
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: slitting_strands_count
+        display_name: Slitting Strands Count
+        description: Number of parallel slit rebar strands configured in the pass
+          design.
+        data_type: integer
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: strands
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - slit_strands
+        - strands_count
+        - عدد خطوط الشق
+        source_system: Mill Pass Design
+        constraints:
+          minimum: 1.0
+          maximum: 6.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_billet_count
+        display_name: Planned Billet Count
+        description: Scheduled number of individual steel billets in the rolling lot.
+        data_type: integer
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: billets
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - billet_count
+        - عدد البيلت
+        source_system: Billet Yard Scale
+        constraints:
+          minimum: 1.0
+          maximum: 10000.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: charging_mode_hot_or_cold
+        display_name: Billet Charging Mode
+        description: Whether billets enter directly hot from CCM or cold from yard.
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - charging_mode
+        - hot_cold_charge
+        - نوع الشحن
+        source_system: Mill Scheduler
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values:
+          - HOT_CHARGE
+          - COLD_CHARGE
+        derived_from: []
+      - name: target_reheat_temp_c
+        display_name: Target Reheat Furnace Temperature
+        description: Planned billet discharge temperature setpoint at the reheating
+          furnace.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: degC
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - aim_reheat_temp
+        - حرارة التسخين المستهدفة
+        source_system: Furnace Recipe
+        constraints:
+          minimum: 950.0
+          maximum: 1300.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: finishing_roll_groove_tonnage_age_t
+        display_name: Finishing Roll Groove Tonnage Age
+        description: Cumulative metric tons rolled on the current finishing stand
+          roll groove.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: metric_ton
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - groove_age_t
+        - roll_tonnage_age
+        - عمر الدرفيل
+        source_system: Roll Shop Log
+        constraints:
+          minimum: 0.0
+          maximum: 50000.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_mill_speed_mps
+        display_name: Planned Finishing Mill Speed
+        description: Scheduled finishing stand rolling velocity (m/s).
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: configured
+        unit: m/s
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - mill_speed_mps
+        - سرعة الدرفلة
+        source_system: Mill PLC Recipe
+        constraints:
+          minimum: 1.0
+          maximum: 60.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: planned_input_billet_mass_kg
+        display_name: Planned Input Billet Mass (kg)
+        description: Exact SI conversion of planned_input_billet_mass_t (* 1000) into
+          kg for unit-compatible waste rate calculations.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: kg
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 5000000.0
+          minimum_inclusive: false
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_input_billet_mass_t
+      - name: planned_single_billet_mass_t
+        display_name: Planned Single Billet Mass
+        description: Average planned billet mass = planned_input_billet_mass_t / billet
+          count.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: metric_ton
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.05
+          maximum: 20.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - planned_input_billet_mass_t
+        - planned_billet_count
+      - name: is_multi_slit_flag
+        display_name: Multi-Slit Rolling Indicator
+        description: Binary indicator (1 if slitting_strands_count >= 2 else 0).
+        data_type: integer
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: null
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 1.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - slitting_strands_count
+      target:
+        target_id: rebar_total_rolling_waste
+        version: 1.0.0
+        feature:
+          name: total_rolling_waste_kg
+          display_name: Total Rolling Waste Quantity
+          description: Measured total rolling scrap and scale loss per rolling lot
+            (crop ends + cobble scrap + mill scale + quality rejects) in kg.
+          data_type: float
+          role: target
+          availability: post_production
+          origin: measured
+          unit: kg
+          required: true
+          nullable: false
+          missing_policy: reject
+          aliases:
+          - rolling_waste_kg
+          - اجمالي هالك الدرفلة
+          source_system: Post-Roll Scrap Scales
+          constraints:
+            minimum: 0.0
+            maximum: 1000000.0
+            minimum_inclusive: true
+            maximum_inclusive: true
+            allowed_values: null
+          derived_from: []
+        task_type: regression
+        target_kind: quantity
+        definition:
+          definition: Total measured rolling material loss per campaign lot combining
+            crop ends, cobble scrap, mill scale oxidation, and quality-rejected rebar.
+          granularity: one_rolling_campaign_lot
+          measurement_method: Sum of weighed post-rolling scrap bins (crop_ends_kg
+            + cobble_scrap_kg + quality_reject_bars_kg) plus reconciled mill_scale_kg.
+          included_components:
+          - crop_ends_scrap
+          - cobble_jam_scrap
+          - mill_scale_oxidation_loss
+          - dimensional_quality_reject_bars
+          excluded_components:
+          - unrolled_billets_returned_to_yard
+          - reclassified_prime_short_bars_sold
+        confirmation:
+          status: unconfirmed
+          confirmed_by: null
+          confirmed_at: null
+          notes: Awaiting Egyptian rolling mill sign-off on mill-scale estimation
+            vs direct weighing and recoverable crop-end classification.
+        derived_rate:
+          name: rolling_waste_rate_pct
+          numerator: total_rolling_waste_kg
+          denominator: planned_input_billet_mass_kg
+          granularity: one_rolling_campaign_lot
+          output_unit: '%'
+          multiplier: 100.0
+      prediction_context:
+        prediction_stage: pre_production
+        horizon_seconds: null
+        description: Prediction executed before billet lot enters the reheating furnace
+          (t <= t0).
+      business_keys:
+      - rolling_lot_id
+      grouping_columns:
+      - production_order_id
+      time_column: planned_start_ts
+- process_id: scrap_yard_reception
+  version: 1.0.0
+  display_name: Scrap Yard Reception & Quality Inspection
+  description: Incoming ferrous scrap weighbridge reception and non-metallic contaminant
+    assessment prior to EAF charging.
+  tasks:
+  - task_id: scrap_delivery_contaminant_prediction
+    version: 1.0.0
+    display_name: Scrap Yard Pre-Inspection Contaminant Prediction
+    description: Predict expected non-metallic contaminant mass (kg) in an incoming
+      scrap delivery from supplier, scrap grade, delivery mass, transport mode, and
+      arrival time.
+    module: waste_management
+    task_type: regression
+    dataset_contract:
+      dataset_id: scrap_yard_delivery_contaminant
+      version: 1.0.0
+      domain: iron_manufacturing
+      process: scrap_yard_reception
+      description: Pre-inspection scrap delivery dataset for non-metallic contaminant
+        prediction.
+      granularity: one_scrap_delivery_vehicle
+      features:
+      - name: scrap_delivery_id
+        display_name: Scrap Delivery Ticket ID
+        description: Unique business identifier for one incoming scrap vehicle delivery.
+        data_type: string
+        role: identifier
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - delivery_id
+        - ticket_id
+        - weighbridge_id
+        - رقم الشحنة
+        - اذن الاستلام
+        source_system: Weighbridge System
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: supplier_group_id
+        display_name: Supplier Group Key
+        description: Supplier identifier used for group-aware splitting and leakage
+          control (prevents memorizing single-supplier bursts across train/test).
+        data_type: string
+        role: metadata
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - vendor_group_id
+        - supplier_batch_group
+        source_system: ERP Procurement
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: entry_ts
+        display_name: Weighbridge Entry Timestamp
+        description: Timestamp when the scrap vehicle arrives at the entry weighbridge
+          (t0).
+        data_type: datetime
+        role: timestamp
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - entrydate
+        - entry_date
+        - planned_start_ts
+        - تاريخ الدخول
+        source_system: Weighbridge System
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: supplier_code
+        display_name: Scrap Supplier Code
+        description: Categorical code identifying the supplying scrap yard or broker.
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - supplier
+        - supplier_id
+        - vendor_id
+        - المورد
+        source_system: ERP Procurement
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: scrap_grade_code
+        display_name: Declared Scrap Grade
+        description: Commercial scrap grade code declared on the delivery manifest.
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - scraptype
+        - scrap_type
+        - درجة الخردة
+        - صنف الخردة
+        source_system: Weighbridge Manifest
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: gross_delivery_mass_kg
+        display_name: Delivery Scrap Mass
+        description: Weighed delivery mass of the incoming scrap load (kg).
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: measured
+        unit: kg
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases:
+        - delivery_weight_kg
+        - truck_weight_kg
+        - وزن الشحنة
+        source_system: Weighbridge Scale
+        constraints:
+          minimum: 0.0
+          maximum: 200000.0
+          minimum_inclusive: false
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: warehouse_zone
+        display_name: Assigned Yard Warehouse Zone
+        description: Designated scrap yard bay or warehouse zone assigned at entry.
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - warehouse
+        - yard_zone
+        - المخزن
+        source_system: Yard Dispatch
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: transport_mode
+        display_name: Delivery Transport Mode
+        description: Transport modality delivering the scrap load (e.g., Truck, Rail
+          car).
+        data_type: category
+        role: predictor
+        availability: pre_production
+        origin: recorded
+        unit: null
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases:
+        - transport
+        - vehicle_type
+        - وسيلة النقل
+        source_system: Gate Log
+        constraints:
+          minimum: null
+          maximum: null
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from: []
+      - name: delivery_mass_metric_ton
+        display_name: Delivery Mass (metric tons)
+        description: Exact SI conversion of gross_delivery_mass_kg / 1000.0.
+        data_type: float
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: metric_ton
+        required: true
+        nullable: false
+        missing_policy: reject
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 200.0
+          minimum_inclusive: false
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - gross_delivery_mass_kg
+      - name: entry_hour_of_day
+        display_name: Entry Hour of Day
+        description: Deterministic arrival hour (0-23) extracted from entry_ts.
+        data_type: integer
+        role: predictor
+        availability: pre_production
+        origin: derived
+        unit: null
+        required: false
+        nullable: true
+        missing_policy: impute
+        aliases: []
+        source_system: null
+        constraints:
+          minimum: 0.0
+          maximum: 23.0
+          minimum_inclusive: true
+          maximum_inclusive: true
+          allowed_values: null
+        derived_from:
+        - entry_ts
+      target:
+        target_id: scrap_delivery_total_contaminant
+        version: 1.0.0
+        feature:
+          name: total_contaminant_kg
+          display_name: Total Non-Metallic Contaminant Mass
+          description: Measured or deducted non-metallic contaminant mass (Soil +
+            Water + Other) for one scrap delivery in kilograms.
+          data_type: float
+          role: target
+          availability: post_production
+          origin: measured
+          unit: kg
+          required: true
+          nullable: false
+          missing_policy: reject
+          aliases:
+          - contaminant_kg
+          - اجمالي الشوائب
+          source_system: Scrap Yard Inspection
+          constraints:
+            minimum: 0.0
+            maximum: 200000.0
+            minimum_inclusive: true
+            maximum_inclusive: true
+            allowed_values: null
+          derived_from: []
+        task_type: regression
+        target_kind: quantity
+        definition:
+          definition: Total non-metallic waste mass (soil, water/moisture, and other
+            debris) deducted upon unloading inspection of a scrap delivery.
+          granularity: one_scrap_delivery_vehicle
+          measurement_method: Sum of soil_kg + water_kg + other_kg logged at unloading.
+          included_components:
+          - soil_dirt_deduction
+          - water_moisture_deduction
+          - other_non_metallic_debris
+          excluded_components:
+          - recoverable_ferrous_scrap_mass
+          - rejected_full_truck_returned_to_supplier
+        confirmation:
+          status: unconfirmed
+          confirmed_by: null
+          confirmed_at: null
+          notes: Awaiting factory confirmation on whether Soil/Water/Other contaminant
+            deductions are physically weighed or inspector-estimated and whether gross_delivery_mass_kg
+            is recorded at entry weighbridge before unloading.
+        derived_rate:
+          name: contaminant_rate_pct
+          numerator: total_contaminant_kg
+          denominator: gross_delivery_mass_kg
+          granularity: one_scrap_delivery_vehicle
+          output_unit: '%'
+          multiplier: 100.0
+      prediction_context:
+        prediction_stage: pre_production
+        horizon_seconds: null
+        description: Prediction executed at entry weighbridge before unloading inspection
+          (t <= t0).
+      business_keys:
+      - scrap_delivery_id
+      grouping_columns:
+      - supplier_group_id
+      time_column: entry_ts
