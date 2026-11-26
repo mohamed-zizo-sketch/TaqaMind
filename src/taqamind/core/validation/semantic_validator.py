@@ -1,6 +1,7 @@
 """Contract-driven semantic validation engine for mapped datasets."""
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,7 @@ from taqamind.core.contracts.enums import (
 )
 from taqamind.core.contracts.feature import FeatureContract
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.context import PipelineContext
 from taqamind.core.interfaces.dataset import DatasetArtifact, DatasetState
 from taqamind.core.interfaces.processing import (
@@ -24,21 +26,30 @@ from taqamind.core.interfaces.processing import (
     validate_processing_input,
 )
 from taqamind.core.interfaces.results import (
+    ExecutionError,
     ExecutionStatus,
     StageResult,
     StageTiming,
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
+from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 
-_BOOL_LITERALS = {"true", "false", "1", "0", "yes", "no", "1.0", "0.0"}
 _MAX_ROW_SAMPLES = 20
 
 
 class ContractSemanticValidator(SemanticValidator):
     """Validate mapped dataset values against DatasetContract rules."""
 
-    def __init__(self, storage: DatasetArtifactStorage) -> None:
+    def __init__(
+        self,
+        storage: DatasetArtifactStorage,
+        *,
+        delimiter: str = ",",
+        max_rows: int | None = None,
+    ) -> None:
         self._storage = storage
+        self._reader = SafeCsvReader(delimiter=delimiter, max_rows=max_rows)
+        self._converter = ContractTypeConverter()
 
     def validate(
         self,
@@ -59,7 +70,20 @@ class ContractSemanticValidator(SemanticValidator):
             factory_id=context.factory_id,
             reference=artifact.reference,
         ) as stream:
-            df = pd.read_csv(stream, keep_default_na=True)
+            raw_bytes = stream.read()
+
+        try:
+            df = self._reader.read(raw_bytes)
+        except SafeCsvError as exc:
+            return StageResult(
+                context=context,
+                stage=PipelineStage.SEMANTIC_VALIDATION,
+                status=ExecutionStatus.FAILED,
+                input_artifact=artifact,
+                report=None,
+                timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
+                error=ExecutionError(code=exc.code, message=str(exc)),
+            )
 
         issues: list[ValidationIssue] = []
 
@@ -165,10 +189,20 @@ class ContractSemanticValidator(SemanticValidator):
         ):
             denom_name = contract.target.derived_rate.denominator
             if denom_name in df.columns:
-                numeric_denom = pd.to_numeric(df[denom_name], errors="coerce")
-                bad_denom = (numeric_denom <= 0) & numeric_denom.notna()
-                bad_indices = np.flatnonzero(bad_denom.to_numpy())
-                if len(bad_indices) > 0:
+                denom_feature = column_map.get(denom_name)
+                denom_type = (
+                    denom_feature.data_type
+                    if denom_feature is not None
+                    and denom_feature.data_type in {DataType.INTEGER, DataType.FLOAT}
+                    else DataType.FLOAT
+                )
+                denom_res = self._converter.convert(df[denom_name], data_type=denom_type)
+                bad_indices = [
+                    idx
+                    for idx, val in enumerate(denom_res.values)
+                    if not pd.isna(val) and Decimal(str(val)) <= 0
+                ]
+                if bad_indices:
                     issues.append(
                         ValidationIssue(
                             code="INVALID_RATE_DENOMINATOR",
@@ -290,21 +324,37 @@ class ContractSemanticValidator(SemanticValidator):
         if parsed_numeric is not None and (
             constraints.minimum is not None or constraints.maximum is not None
         ):
-            valid_num_mask = parsed_numeric.notna() & np.isfinite(parsed_numeric)
-            violation_mask = pd.Series(False, index=series.index)
-            if constraints.minimum is not None:
-                if constraints.minimum_inclusive:
-                    violation_mask |= valid_num_mask & (parsed_numeric < constraints.minimum)
-                else:
-                    violation_mask |= valid_num_mask & (parsed_numeric <= constraints.minimum)
-            if constraints.maximum is not None:
-                if constraints.maximum_inclusive:
-                    violation_mask |= valid_num_mask & (parsed_numeric > constraints.maximum)
-                else:
-                    violation_mask |= valid_num_mask & (parsed_numeric >= constraints.maximum)
-
-            range_bad_indices = np.flatnonzero(violation_mask.to_numpy())
-            if len(range_bad_indices) > 0:
+            min_dec = (
+                Decimal(str(constraints.minimum))
+                if constraints.minimum is not None
+                else None
+            )
+            max_dec = (
+                Decimal(str(constraints.maximum))
+                if constraints.maximum is not None
+                else None
+            )
+            range_bad_indices: list[int] = []
+            for idx, val in enumerate(parsed_numeric):
+                if pd.isna(val):
+                    continue
+                dec_val = (
+                    Decimal(int(val))
+                    if feature.data_type == DataType.INTEGER
+                    else Decimal(str(val))
+                )
+                if min_dec is not None:
+                    if (constraints.minimum_inclusive and dec_val < min_dec) or (
+                        not constraints.minimum_inclusive and dec_val <= min_dec
+                    ):
+                        range_bad_indices.append(idx)
+                        continue
+                if max_dec is not None:
+                    if (constraints.maximum_inclusive and dec_val > max_dec) or (
+                        not constraints.maximum_inclusive and dec_val >= max_dec
+                    ):
+                        range_bad_indices.append(idx)
+            if range_bad_indices:
                 issues.append(
                     ValidationIssue(
                         code="CONSTRAINT_RANGE_VIOLATION",
@@ -356,32 +406,21 @@ class ContractSemanticValidator(SemanticValidator):
         non_null_mask: pd.Series,
         data_type: DataType,
     ) -> tuple[pd.Series | None, np.ndarray]:
-        if data_type == DataType.FLOAT:
-            numeric = pd.to_numeric(series, errors="coerce")
-            bad_mask = non_null_mask & (numeric.isna() | ~np.isfinite(numeric))
-            return numeric, np.flatnonzero(bad_mask.to_numpy())
+        if data_type in {
+            DataType.STRING,
+            DataType.CATEGORY,
+            DataType.INTEGER,
+            DataType.FLOAT,
+            DataType.BOOLEAN,
+            DataType.DATE,
+            DataType.DATETIME,
+        }:
+            conversion = self._converter.convert(series, data_type=data_type)
+            numeric_values = (
+                conversion.values
+                if data_type in {DataType.INTEGER, DataType.FLOAT}
+                else None
+            )
+            return numeric_values, np.asarray(conversion.invalid_positions, dtype=int)
 
-        if data_type == DataType.INTEGER:
-            numeric = pd.to_numeric(series, errors="coerce")
-            is_finite = numeric.notna() & np.isfinite(numeric)
-            fractional = pd.Series(False, index=series.index)
-            fractional.loc[is_finite] = (numeric.loc[is_finite] % 1) != 0
-            bad_mask = non_null_mask & (~is_finite | fractional)
-            return numeric, np.flatnonzero(bad_mask.to_numpy())
-
-        if data_type == DataType.BOOLEAN:
-            if pd.api.types.is_bool_dtype(series):
-                return None, np.array([], dtype=int)
-            lowered = series.astype(str).str.strip().str.casefold()
-            bad_mask = non_null_mask & ~lowered.isin(_BOOL_LITERALS)
-            return None, np.flatnonzero(bad_mask.to_numpy())
-
-        if data_type in {DataType.DATE, DataType.DATETIME}:
-            parsed = pd.to_datetime(series, errors="coerce")
-            bad_mask = non_null_mask & parsed.isna()
-            return None, np.flatnonzero(bad_mask.to_numpy())
-
-        # STRING or CATEGORY: reject whitespace-only strings.
-        stripped = series.astype(str).str.strip()
-        bad_mask = non_null_mask & (stripped == "")
-        return None, np.flatnonzero(bad_mask.to_numpy())
+        raise ValueError(f"Unsupported data type: {data_type}")

@@ -24,6 +24,8 @@ from taqamind.core.interfaces.storage import (
     validate_artifact_scope,
     verify_artifact_integrity,
 )
+from taqamind.core.registry._concurrency import locked_path
+from taqamind.core.registry._json_store import _strip_long_prefix
 
 
 class _LocalArtifactStore:
@@ -59,7 +61,7 @@ class _LocalArtifactStore:
         validate_artifact_scope(factory_id=factory_id, reference=reference)
         target = (self._base_dir / reference.storage_key).resolve()
         try:
-            target.relative_to(self._base_dir)
+            _strip_long_prefix(target).relative_to(_strip_long_prefix(self._base_dir))
         except ValueError as exc:
             raise ValueError("Resolved artifact path escapes storage root.") from exc
         return target
@@ -112,20 +114,22 @@ class _LocalArtifactStore:
         try:
             verify_artifact_integrity(reference=reference, integrity=integrity)
 
-            if target.exists():
-                with target.open("rb") as existing_file:
-                    existing_integrity = calculate_stream_integrity(
-                        existing_file,
-                        chunk_size=self._chunk_size,
-                    )
-                if existing_integrity != integrity:
-                    raise ArtifactConflictError(
-                        "Existing artifact content differs from the new content."
-                    )
-                tmp_path.unlink(missing_ok=True)
-                return
+            lock_file = target.with_name(f".{target.name}.lock")
+            with locked_path(lock_file):
+                if target.exists():
+                    with target.open("rb") as existing_file:
+                        existing_integrity = calculate_stream_integrity(
+                            existing_file,
+                            chunk_size=self._chunk_size,
+                        )
+                    if existing_integrity != integrity:
+                        raise ArtifactConflictError(
+                            "Existing artifact content differs from the new content."
+                        )
+                    tmp_path.unlink(missing_ok=True)
+                    return
 
-            os.replace(tmp_path, target)
+                os.replace(tmp_path, target)
         except BaseException:
             tmp_path.unlink(missing_ok=True)
             raise

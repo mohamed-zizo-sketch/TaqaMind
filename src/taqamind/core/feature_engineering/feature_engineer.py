@@ -10,6 +10,8 @@ import pandas as pd
 from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import (
     DatasetPurpose,
+    DataType,
+    FeatureAvailability,
     FeatureOrigin,
     IssueImpact,
     PipelineStage,
@@ -17,6 +19,7 @@ from taqamind.core.contracts.enums import (
     ValidationSeverity,
 )
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
     ArtifactReference,
@@ -33,11 +36,13 @@ from taqamind.core.interfaces.processing import (
     validate_processing_input,
 )
 from taqamind.core.interfaces.results import (
+    ExecutionError,
     ExecutionStatus,
     StageResult,
     StageTiming,
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
+from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +61,9 @@ class DeterministicFeatureEngineer(FeatureEngineer):
         storage: DatasetArtifactStorage,
         *,
         derived_specs: tuple[DerivedFeatureSpec, ...] = (),
-        implementation_version: str = "0.1.0",
+        implementation_version: str = "0.2.0",
+        delimiter: str = ",",
+        max_rows: int | None = None,
     ) -> None:
         names = [spec.feature_name for spec in derived_specs]
         if len(names) != len(set(names)):
@@ -64,6 +71,8 @@ class DeterministicFeatureEngineer(FeatureEngineer):
         self._storage = storage
         self._specs = {spec.feature_name: spec for spec in derived_specs}
         self._implementation_version = implementation_version
+        self._reader = SafeCsvReader(delimiter=delimiter, max_rows=max_rows)
+        self._converter = ContractTypeConverter()
 
     def engineer(
         self,
@@ -84,9 +93,33 @@ class DeterministicFeatureEngineer(FeatureEngineer):
             factory_id=context.factory_id,
             reference=artifact.reference,
         ) as stream:
-            df = pd.read_csv(stream, keep_default_na=True)
+            raw_bytes = stream.read()
+
+        try:
+            df = self._reader.read(raw_bytes)
+        except SafeCsvError as exc:
+            return StageResult(
+                context=context,
+                stage=PipelineStage.FEATURE_ENGINEERING,
+                status=ExecutionStatus.FAILED,
+                input_artifact=artifact,
+                report=None,
+                timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
+                error=ExecutionError(code=exc.code, message=str(exc)),
+            )
 
         engineered_df = df.copy()
+        column_map = contract.column_map
+        for col_name in engineered_df.columns:
+            feature = column_map.get(str(col_name))
+            if feature is None:
+                continue
+            if feature.data_type in {DataType.INTEGER, DataType.FLOAT, DataType.BOOLEAN}:
+                conv = self._converter.convert(
+                    engineered_df[col_name], data_type=feature.data_type
+                )
+                if conv.is_valid:
+                    engineered_df[col_name] = conv.values
         issues: list[ValidationIssue] = []
 
         if (
@@ -132,13 +165,24 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                     )
                 )
 
-        # Topologically order derived features so chained derivations execute safely.
+        # Topologically order derived features and detect dependency cycles.
         derived_features = [
             feature
             for feature in contract.features
             if feature.origin == FeatureOrigin.DERIVED
         ]
-        ordered_derived = self._topological_sort(derived_features)
+        ordered_derived, cycle_names = self._topological_sort(derived_features)
+        if cycle_names:
+            issues.append(
+                ValidationIssue(
+                    code="DERIVED_FEATURE_DEPENDENCY_CYCLE",
+                    stage=PipelineStage.FEATURE_ENGINEERING,
+                    severity=ValidationSeverity.CRITICAL,
+                    impact=IssueImpact.BLOCKING,
+                    message="Circular dependency detected among derived features.",
+                    columns=tuple(cycle_names),
+                )
+            )
 
         for feature in ordered_derived:
             if (
@@ -161,10 +205,33 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                 )
                 continue
 
-            if feature.name in engineered_df.columns:
+            post_prod_deps = tuple(
+                dep
+                for dep in deps
+                if dep in column_map
+                and column_map[dep].availability == FeatureAvailability.POST_PRODUCTION
+                and feature.availability == FeatureAvailability.PRE_PRODUCTION
+            )
+            if post_prod_deps:
+                issues.append(
+                    ValidationIssue(
+                        code="DERIVED_FEATURE_AVAILABILITY_LEAKAGE",
+                        stage=PipelineStage.FEATURE_ENGINEERING,
+                        severity=ValidationSeverity.CRITICAL,
+                        impact=IssueImpact.BLOCKING,
+                        message=(
+                            f"Pre-production derived feature '{feature.name}' depends on "
+                            "post-production features."
+                        ),
+                        columns=post_prod_deps,
+                    )
+                )
                 continue
 
             spec = self._specs.get(feature.name)
+            if feature.name in engineered_df.columns and spec is None:
+                continue
+
             if spec is None:
                 if feature.required or context.purpose == DatasetPurpose.PREDICTION:
                     issues.append(
@@ -200,8 +267,26 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                 )
                 continue
 
-            computed = spec.compute(engineered_df)
-            if len(computed) != len(engineered_df):
+            # Restrict compute input strictly to declared dependencies (AUD-003).
+            dep_frame = engineered_df.loc[:, list(feature.derived_from)].copy()
+            computed = spec.compute(dep_frame)
+            if not isinstance(computed, pd.Series):
+                issues.append(
+                    ValidationIssue(
+                        code="DERIVED_FEATURE_INVALID_TYPE",
+                        stage=PipelineStage.FEATURE_ENGINEERING,
+                        severity=ValidationSeverity.ERROR,
+                        impact=IssueImpact.BLOCKING,
+                        message=(
+                            f"Derived feature '{feature.name}' must return a pandas Series."
+                        ),
+                        columns=(feature.name,),
+                    )
+                )
+                continue
+            if len(computed) != len(engineered_df) or not computed.index.equals(
+                engineered_df.index
+            ):
                 issues.append(
                     ValidationIssue(
                         code="DERIVED_FEATURE_LENGTH_MISMATCH",
@@ -209,7 +294,7 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                         severity=ValidationSeverity.ERROR,
                         impact=IssueImpact.BLOCKING,
                         message=(
-                            f"Derived feature '{feature.name}' produced wrong row count."
+                            f"Derived feature '{feature.name}' produced wrong row count or index."
                         ),
                         columns=(feature.name,),
                     )
@@ -248,7 +333,7 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                 timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
             )
 
-        engineered_bytes = engineered_df.to_csv(index=False).encode("utf-8")
+        engineered_bytes = engineered_df.to_csv(index=False, lineterminator="\r\n").encode("utf-8")
         engineered_ref = ArtifactReference(
             factory_id=context.factory_id,
             format=ArtifactFormat.CSV,
@@ -292,19 +377,28 @@ class DeterministicFeatureEngineer(FeatureEngineer):
         )
 
     @staticmethod
-    def _topological_sort(features: list) -> list:
+    def _topological_sort(features: list) -> tuple[list, list[str]]:
         by_name = {f.name: f for f in features}
-        visited: set[str] = set()
+        state: dict[str, int] = {}  # 0/absent=unvisited, 1=visiting, 2=visited
         ordered: list = []
+        cycles: list[str] = []
 
         def visit(name: str) -> None:
-            if name in visited or name not in by_name:
+            if name not in by_name:
                 return
-            visited.add(name)
+            st = state.get(name, 0)
+            if st == 2:
+                return
+            if st == 1:
+                if name not in cycles:
+                    cycles.append(name)
+                return
+            state[name] = 1
             for dep in by_name[name].derived_from:
                 visit(dep)
+            state[name] = 2
             ordered.append(by_name[name])
 
         for feature in features:
             visit(feature.name)
-        return ordered
+        return ordered, cycles

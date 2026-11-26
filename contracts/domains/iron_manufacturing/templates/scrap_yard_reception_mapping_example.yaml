@@ -1,0 +1,58 @@
+process_id: scrap_yard_reception
+dataset_id: scrap_yard_delivery_contaminant
+contract_version: 1.0.0
+example_source_to_canonical_mappings:
+  delivery_id:
+    canonical_column: scrap_delivery_id
+    source_unit: null
+    canonical_unit: null
+    role: identifier
+    availability: pre_production
+  vendor_group_id:
+    canonical_column: supplier_group_id
+    source_unit: null
+    canonical_unit: null
+    role: metadata
+    availability: pre_production
+  entrydate:
+    canonical_column: entry_ts
+    source_unit: null
+    canonical_unit: null
+    role: timestamp
+    availability: pre_production
+  supplier:
+    canonical_column: supplier_code
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  scraptype:
+    canonical_column: scrap_grade_code
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  delivery_weight_kg:
+    canonical_column: gross_delivery_mass_kg
+    source_unit: kg
+    canonical_unit: kg
+    role: predictor
+    availability: pre_production
+  warehouse:
+    canonical_column: warehouse_zone
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  transport:
+    canonical_column: transport_mode
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  contaminant_kg:
+    canonical_column: total_contaminant_kg
+    source_unit: kg
+    canonical_unit: kg
+    role: target
+    availability: post_production

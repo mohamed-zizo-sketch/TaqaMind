@@ -18,6 +18,7 @@ from taqamind.core.contracts.enums import (
 )
 from taqamind.core.contracts.feature import FeatureContract
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
     ArtifactReference,
@@ -34,14 +35,13 @@ from taqamind.core.interfaces.processing import (
     validate_processing_input,
 )
 from taqamind.core.interfaces.results import (
+    ExecutionError,
     ExecutionStatus,
     StageResult,
     StageTiming,
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
-
-_TRUE_LITERALS = {"true", "1", "yes", "1.0"}
-_FALSE_LITERALS = {"false", "0", "no", "0.0"}
+from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 
 
 class ContractDataCleaner(DataCleaner):
@@ -51,10 +51,14 @@ class ContractDataCleaner(DataCleaner):
         self,
         storage: DatasetArtifactStorage,
         *,
-        implementation_version: str = "0.1.0",
+        implementation_version: str = "0.2.0",
+        delimiter: str = ",",
+        max_rows: int | None = None,
     ) -> None:
         self._storage = storage
         self._implementation_version = implementation_version
+        self._reader = SafeCsvReader(delimiter=delimiter, max_rows=max_rows)
+        self._converter = ContractTypeConverter()
 
     def clean(
         self,
@@ -75,7 +79,20 @@ class ContractDataCleaner(DataCleaner):
             factory_id=context.factory_id,
             reference=artifact.reference,
         ) as stream:
-            df = pd.read_csv(stream, keep_default_na=True)
+            raw_bytes = stream.read()
+
+        try:
+            df = self._reader.read(raw_bytes)
+        except SafeCsvError as exc:
+            return StageResult(
+                context=context,
+                stage=PipelineStage.CLEANING,
+                status=ExecutionStatus.FAILED,
+                input_artifact=artifact,
+                report=None,
+                timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
+                error=ExecutionError(code=exc.code, message=str(exc)),
+            )
 
         cleaned_df = df.copy()
         issues: list[ValidationIssue] = []
@@ -127,6 +144,36 @@ class ContractDataCleaner(DataCleaner):
             cleaned_df[col_name] = cleaned_series
             issues.extend(col_issues)
 
+        if (
+            not cleaned_df.empty
+            and contract.business_keys
+            and all(key in cleaned_df.columns for key in contract.business_keys)
+        ):
+            before_keys = df[list(contract.business_keys)]
+            after_keys = cleaned_df[list(contract.business_keys)]
+            before_dups = (
+                ~before_keys.isna().any(axis=1) & before_keys.duplicated(keep="first")
+            )
+            after_dups = (
+                ~after_keys.isna().any(axis=1) & after_keys.duplicated(keep="first")
+            )
+            new_collisions = np.flatnonzero((after_dups & ~before_dups).to_numpy())
+            if len(new_collisions) > 0:
+                issues.append(
+                    ValidationIssue(
+                        code="WHITESPACE_NORMALIZATION_KEY_COLLISION",
+                        stage=PipelineStage.CLEANING,
+                        severity=ValidationSeverity.ERROR,
+                        impact=IssueImpact.BLOCKING,
+                        message=(
+                            "Whitespace normalization introduced duplicate business keys."
+                        ),
+                        columns=contract.business_keys,
+                        affected_rows=int(len(new_collisions)),
+                        row_samples=tuple(int(i) for i in new_collisions[:20]),
+                    )
+                )
+
         report = ValidationReport(
             dataset_id=context.dataset_id,
             contract_version=context.contract_version,
@@ -149,7 +196,7 @@ class ContractDataCleaner(DataCleaner):
                 timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
             )
 
-        cleaned_bytes = cleaned_df.to_csv(index=False).encode("utf-8")
+        cleaned_bytes = cleaned_df.to_csv(index=False, lineterminator="\r\n").encode("utf-8")
         cleaned_ref = ArtifactReference(
             factory_id=context.factory_id,
             format=ArtifactFormat.CSV,
@@ -211,90 +258,47 @@ class ContractDataCleaner(DataCleaner):
             if bool(blank_mask.any()):
                 result = result.mask(blank_mask, pd.NA)
 
-        elif feature.data_type == DataType.FLOAT:
-            coerced = pd.to_numeric(result, errors="coerce")
-            invalid_mask = result.notna() & (coerced.isna() | ~np.isfinite(coerced))
-            if bool(invalid_mask.any()):
+        elif feature.data_type in {
+            DataType.FLOAT,
+            DataType.INTEGER,
+            DataType.BOOLEAN,
+            DataType.DATE,
+            DataType.DATETIME,
+        }:
+            conversion = self._converter.convert(result, data_type=feature.data_type)
+            if not conversion.is_valid:
+                code_map = {
+                    DataType.FLOAT: "CLEANING_INVALID_FLOAT",
+                    DataType.INTEGER: "CLEANING_INVALID_INTEGER",
+                    DataType.BOOLEAN: "CLEANING_INVALID_BOOLEAN",
+                    DataType.DATE: "CLEANING_INVALID_TIMESTAMP",
+                    DataType.DATETIME: "CLEANING_INVALID_TIMESTAMP",
+                }
+                msg_map = {
+                    DataType.FLOAT: (
+                        f"Column '{feature.name}' contains non-numeric or non-finite values."
+                    ),
+                    DataType.INTEGER: f"Column '{feature.name}' contains non-integer values.",
+                    DataType.BOOLEAN: (
+                        f"Column '{feature.name}' contains invalid boolean literals."
+                    ),
+                    DataType.DATE: (
+                        f"Column '{feature.name}' contains invalid date values."
+                    ),
+                    DataType.DATETIME: (
+                        f"Column '{feature.name}' contains invalid datetime values."
+                    ),
+                }
                 issues.append(
                     self._blocking_issue(
-                        code="CLEANING_INVALID_FLOAT",
+                        code=code_map[feature.data_type],
                         feature=feature,
-                        indices=np.flatnonzero(invalid_mask.to_numpy()),
-                        message=(
-                            f"Column '{feature.name}' contains non-numeric "
-                            "or non-finite values."
-                        ),
+                        indices=np.asarray(conversion.invalid_positions, dtype=int),
+                        message=msg_map[feature.data_type],
                     )
                 )
             else:
-                result = coerced.astype("float64")
-
-        elif feature.data_type == DataType.INTEGER:
-            coerced = pd.to_numeric(result, errors="coerce")
-            is_finite = coerced.notna() & np.isfinite(coerced)
-            fractional = pd.Series(False, index=result.index)
-            fractional.loc[is_finite] = (coerced.loc[is_finite] % 1) != 0
-            invalid_mask = result.notna() & (~is_finite | fractional)
-            if bool(invalid_mask.any()):
-                issues.append(
-                    self._blocking_issue(
-                        code="CLEANING_INVALID_INTEGER",
-                        feature=feature,
-                        indices=np.flatnonzero(invalid_mask.to_numpy()),
-                        message=f"Column '{feature.name}' contains non-integer values.",
-                    )
-                )
-            else:
-                result = coerced.astype("Int64")
-
-        elif feature.data_type == DataType.BOOLEAN:
-            if not pd.api.types.is_bool_dtype(result):
-                normalized_vals: list[bool | object] = []
-                bad_indices: list[int] = []
-                for idx, val in enumerate(result.tolist()):
-                    if pd.isna(val):
-                        normalized_vals.append(pd.NA)
-                        continue
-                    token = str(val).strip().casefold()
-                    if token in _TRUE_LITERALS:
-                        normalized_vals.append(True)
-                    elif token in _FALSE_LITERALS:
-                        normalized_vals.append(False)
-                    else:
-                        normalized_vals.append(val)
-                        bad_indices.append(idx)
-                if bad_indices:
-                    issues.append(
-                        self._blocking_issue(
-                            code="CLEANING_INVALID_BOOLEAN",
-                            feature=feature,
-                            indices=np.asarray(bad_indices, dtype=int),
-                            message=f"Column '{feature.name}' contains invalid boolean literals.",
-                        )
-                    )
-                else:
-                    result = pd.Series(normalized_vals, index=result.index, dtype="boolean")
-
-        elif feature.data_type in {DataType.DATE, DataType.DATETIME}:
-            parsed = pd.to_datetime(
-                result,
-                errors="coerce",
-                utc=(feature.data_type == DataType.DATETIME),
-            )
-            invalid_mask = result.notna() & parsed.isna()
-            if bool(invalid_mask.any()):
-                issues.append(
-                    self._blocking_issue(
-                        code="CLEANING_INVALID_TIMESTAMP",
-                        feature=feature,
-                        indices=np.flatnonzero(invalid_mask.to_numpy()),
-                        message=f"Column '{feature.name}' contains invalid date/datetime values.",
-                    )
-                )
-            else:
-                fmt = "%Y-%m-%d" if feature.data_type == DataType.DATE else "%Y-%m-%dT%H:%M:%SZ"
-                formatted = parsed.dt.strftime(fmt)
-                result = formatted.where(result.notna(), pd.NA)
+                result = conversion.values
 
         missing_indices = np.flatnonzero(result.isna().to_numpy())
         if len(missing_indices) > 0 and feature.missing_policy == MissingValuePolicy.REJECT:

@@ -11,6 +11,7 @@ from taqamind.core.registry.domain_registry import (
     DomainRegistry,
     DomainRegistryError,
 )
+from taqamind.core.registry.model_registry import LocalModelRegistry
 
 __all__ = [
     "DomainAlreadyRegisteredError",
@@ -20,4 +21,5 @@ __all__ = [
     "LocalDatasetArtifactStorage",
     "LocalDatasetRegistry",
     "LocalModelArtifactStorage",
+    "LocalModelRegistry",
 ]

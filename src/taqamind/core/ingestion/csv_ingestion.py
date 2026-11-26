@@ -1,14 +1,13 @@
 """CSV data ingestion engine implementing the DataIngestion protocol."""
 
-import csv
+import json
 from datetime import UTC, datetime
-from io import BytesIO, StringIO
-
-import pandas as pd
+from io import BytesIO
 
 from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import PipelineStage
 from taqamind.core.contracts.validation import ValidationReport
+from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
     ArtifactReference,
@@ -40,14 +39,21 @@ class CsvDataIngestion(DataIngestion):
         self,
         storage: DatasetArtifactStorage,
         *,
-        implementation_version: str = "0.1.0",
+        implementation_version: str = "0.2.0",
         max_rows: int | None = None,
+        delimiter: str = ",",
     ) -> None:
-        if max_rows is not None and max_rows <= 0:
-            raise ValueError("max_rows must be positive when provided.")
         self._storage = storage
         self._implementation_version = implementation_version
-        self._max_rows = max_rows
+        self._reader = SafeCsvReader(delimiter=delimiter, max_rows=max_rows)
+        configuration = {
+            "delimiter": delimiter,
+            "max_rows": max_rows,
+            "reader_version": self._reader.VERSION,
+        }
+        self._configuration_sha256 = calculate_bytes_sha256(
+            json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
 
     def _failed_result(
         self,
@@ -89,80 +95,18 @@ class CsvDataIngestion(DataIngestion):
         ) as stream:
             raw_bytes = stream.read()
 
-        if not raw_bytes.strip():
-            return self._failed_result(
-                context=context,
-                artifact=artifact,
-                started_at=started_at,
-                code="CSV_EMPTY_FILE",
-                message="Uploaded CSV file is empty.",
-            )
-
         try:
-            text = raw_bytes.decode("utf-8-sig")
-        except UnicodeDecodeError:
+            df = self._reader.read(raw_bytes)
+        except SafeCsvError as exc:
             return self._failed_result(
                 context=context,
                 artifact=artifact,
                 started_at=started_at,
-                code="CSV_DECODE_ERROR",
-                message="CSV file must be valid UTF-8.",
+                code=exc.code,
+                message=str(exc),
             )
 
-        reader = csv.reader(StringIO(text))
-        try:
-            headers = next(reader)
-        except StopIteration:
-            return self._failed_result(
-                context=context,
-                artifact=artifact,
-                started_at=started_at,
-                code="CSV_MISSING_HEADER",
-                message="CSV file does not contain a header row.",
-            )
-
-        cleaned_headers = [header.strip() for header in headers]
-        if not cleaned_headers or any(not header for header in cleaned_headers):
-            return self._failed_result(
-                context=context,
-                artifact=artifact,
-                started_at=started_at,
-                code="CSV_BLANK_HEADER",
-                message="CSV header contains blank column names.",
-            )
-
-        if len(cleaned_headers) != len(set(cleaned_headers)):
-            return self._failed_result(
-                context=context,
-                artifact=artifact,
-                started_at=started_at,
-                code="CSV_DUPLICATE_HEADER",
-                message="CSV header contains duplicate column names.",
-            )
-
-        try:
-            df = pd.read_csv(StringIO(text), keep_default_na=True)
-        except Exception as exc:
-            return self._failed_result(
-                context=context,
-                artifact=artifact,
-                started_at=started_at,
-                code="CSV_PARSE_ERROR",
-                message=f"Failed to parse CSV content: {exc}",
-            )
-
-        df.columns = cleaned_headers
-
-        if self._max_rows is not None and len(df) > self._max_rows:
-            return self._failed_result(
-                context=context,
-                artifact=artifact,
-                started_at=started_at,
-                code="CSV_ROW_LIMIT_EXCEEDED",
-                message=f"CSV row count {len(df)} exceeds limit {self._max_rows}.",
-            )
-
-        ingested_bytes = df.to_csv(index=False).encode("utf-8")
+        ingested_bytes = df.to_csv(index=False, lineterminator="\r\n").encode("utf-8")
         ingested_ref = ArtifactReference(
             factory_id=context.factory_id,
             format=ArtifactFormat.CSV,
@@ -186,7 +130,8 @@ class CsvDataIngestion(DataIngestion):
             columns=columns,
             operation="ingest_csv",
             implementation_version=self._implementation_version,
-            description="Ingested raw CSV into verified immutable revision.",
+            configuration_sha256=self._configuration_sha256,
+            description="Ingested raw CSV without implicit value or type coercion.",
         )
         output_artifact = DatasetArtifact(
             metadata=ingested_metadata,

@@ -1,10 +1,20 @@
 """Internal atomic JSON persistence helpers for local registries."""
 
+import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
+from pydantic_core import to_jsonable_python
+
+
+def _strip_long_prefix(path: Path) -> Path:
+    raw = str(path)
+    if raw.startswith("\\\\?\\"):
+        return Path(raw[4:])
+    return path
 
 
 def safe_resolve(root: Path, *parts: str) -> Path:
@@ -12,7 +22,7 @@ def safe_resolve(root: Path, *parts: str) -> Path:
     resolved_root = root.resolve()
     target = resolved_root.joinpath(*parts).resolve()
     try:
-        target.relative_to(resolved_root)
+        _strip_long_prefix(target).relative_to(_strip_long_prefix(resolved_root))
     except ValueError as exc:
         raise ValueError("Resolved registry path escapes root directory.") from exc
     return target
@@ -30,6 +40,25 @@ def atomic_write_text(path: Path, content: str) -> None:
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+def _strip_computed_fields(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return {
+            field_name: _strip_computed_fields(getattr(value, field_name))
+            for field_name in type(value).model_fields
+        }
+    if isinstance(value, (list, tuple)):
+        return [_strip_computed_fields(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _strip_computed_fields(v) for k, v in value.items()}
+    return value
+
+
+def dump_json_model(model: BaseModel) -> str:
+    """Serialize a Pydantic model excluding @computed_field keys for strict reload."""
+    stripped = _strip_computed_fields(model)
+    return json.dumps(to_jsonable_python(stripped), indent=2)
 
 
 def load_json_model[TModel: BaseModel](path: Path, model_type: type[TModel]) -> TModel:

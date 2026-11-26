@@ -19,6 +19,7 @@ from taqamind.core.interfaces.storage import (
     DatasetArtifactStorage,
     StorageError,
 )
+from taqamind.core.registry._concurrency import locked_path
 from taqamind.core.registry._json_store import (
     atomic_write_text,
     iter_json_models,
@@ -104,48 +105,50 @@ class LocalDatasetRegistry(DatasetRegistry):
 
         self._verify_stored_artifact(factory_id=factory_id, artifact=artifact)
 
-        target_path = self._revision_path(factory_id, artifact.metadata.revision_id)
-        if target_path.is_file():
-            existing = load_json_model(target_path, DatasetArtifact)
-            if existing == artifact:
-                return DatasetRegistrationResult(
-                    status=DatasetRegistrationStatus.ALREADY_REGISTERED,
-                    artifact=existing,
-                    matching_source_revision_ids=self._matching_raw_ids(
-                        factory_id=factory_id,
+        factory_lock = safe_resolve(self._root, "datasets", str(factory_id), ".factory.lock")
+        with locked_path(factory_lock):
+            target_path = self._revision_path(factory_id, artifact.metadata.revision_id)
+            if target_path.is_file():
+                existing = load_json_model(target_path, DatasetArtifact)
+                if existing == artifact:
+                    return DatasetRegistrationResult(
+                        status=DatasetRegistrationStatus.ALREADY_REGISTERED,
                         artifact=existing,
-                    ),
-                )
-            raise RegistryConflictError(
-                "Conflicting metadata for an already-registered dataset revision."
-            )
-
-        if artifact.metadata.state != DatasetState.RAW:
-            parent_id = artifact.metadata.parent_revision_id
-            if parent_id is None:
+                        matching_source_revision_ids=self._matching_raw_ids(
+                            factory_id=factory_id,
+                            artifact=existing,
+                        ),
+                    )
                 raise RegistryConflictError(
-                    "Processed dataset revision must declare a parent revision."
+                    "Conflicting metadata for an already-registered dataset revision."
                 )
-            parent = self.get(
-                factory_id=factory_id,
-                dataset_revision_id=parent_id,
-            )
-            validate_dataset_parent(parent=parent, child=artifact)
-            # Ensure full root-to-parent chain is intact and acyclic.
-            self.get_lineage(
-                factory_id=factory_id,
-                dataset_revision_id=parent_id,
-            )
 
-        atomic_write_text(target_path, artifact.model_dump_json(indent=2))
-        return DatasetRegistrationResult(
-            status=DatasetRegistrationStatus.REGISTERED,
-            artifact=artifact,
-            matching_source_revision_ids=self._matching_raw_ids(
-                factory_id=factory_id,
+            if artifact.metadata.state != DatasetState.RAW:
+                parent_id = artifact.metadata.parent_revision_id
+                if parent_id is None:
+                    raise RegistryConflictError(
+                        "Processed dataset revision must declare a parent revision."
+                    )
+                parent = self.get(
+                    factory_id=factory_id,
+                    dataset_revision_id=parent_id,
+                )
+                validate_dataset_parent(parent=parent, child=artifact)
+                # Ensure full root-to-parent chain is intact and acyclic.
+                self.get_lineage(
+                    factory_id=factory_id,
+                    dataset_revision_id=parent_id,
+                )
+
+            atomic_write_text(target_path, artifact.model_dump_json(indent=2))
+            return DatasetRegistrationResult(
+                status=DatasetRegistrationStatus.REGISTERED,
                 artifact=artifact,
-            ),
-        )
+                matching_source_revision_ids=self._matching_raw_ids(
+                    factory_id=factory_id,
+                    artifact=artifact,
+                ),
+            )
 
     def get(
         self,
