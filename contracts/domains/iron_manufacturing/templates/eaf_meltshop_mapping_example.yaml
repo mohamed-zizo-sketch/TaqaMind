@@ -1,0 +1,118 @@
+process_id: eaf_meltshop
+dataset_id: eaf_meltshop_heat_waste
+contract_version: 1.0.0
+example_source_to_canonical_mappings:
+  heat_no:
+    canonical_column: heat_id
+    source_unit: null
+    canonical_unit: null
+    role: identifier
+    availability: pre_production
+  order_id:
+    canonical_column: production_order_id
+    source_unit: null
+    canonical_unit: null
+    role: metadata
+    availability: pre_production
+  start_time:
+    canonical_column: planned_start_ts
+    source_unit: null
+    canonical_unit: null
+    role: timestamp
+    availability: pre_production
+  eaf_id:
+    canonical_column: furnace_id
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: static
+  shift:
+    canonical_column: shift_code
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  steel_grade:
+    canonical_column: steel_grade_code
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  scrap_mass_t:
+    canonical_column: planned_scrap_mass_t
+    source_unit: metric_ton
+    canonical_unit: metric_ton
+    role: predictor
+    availability: pre_production
+  dri_mass_t:
+    canonical_column: planned_dri_mass_t
+    source_unit: metric_ton
+    canonical_unit: metric_ton
+    role: predictor
+    availability: pre_production
+  target_tap_weight:
+    canonical_column: planned_tap_mass_t
+    source_unit: metric_ton
+    canonical_unit: metric_ton
+    role: predictor
+    availability: pre_production
+  scrap_mix_code:
+    canonical_column: planned_scrap_grade_mix_code
+    source_unit: null
+    canonical_unit: null
+    role: predictor
+    availability: pre_production
+  prior_scrap_dirt_pct:
+    canonical_column: expected_scrap_contaminant_pct
+    source_unit: '%'
+    canonical_unit: '%'
+    role: predictor
+    availability: pre_production
+  metallization_pct:
+    canonical_column: dri_metallization_pct
+    source_unit: '%'
+    canonical_unit: '%'
+    role: predictor
+    availability: pre_production
+  gangue_pct:
+    canonical_column: dri_gangue_pct
+    source_unit: '%'
+    canonical_unit: '%'
+    role: predictor
+    availability: pre_production
+  hot_heel_t:
+    canonical_column: planned_hot_heel_mass_t
+    source_unit: metric_ton
+    canonical_unit: metric_ton
+    role: predictor
+    availability: pre_production
+  lime_kg:
+    canonical_column: planned_lime_flux_kg
+    source_unit: kg
+    canonical_unit: kg
+    role: predictor
+    availability: pre_production
+  oxygen_plan_nm3:
+    canonical_column: planned_oxygen_nm3
+    source_unit: Nm3
+    canonical_unit: Nm3
+    role: predictor
+    availability: pre_production
+  aim_tap_temp:
+    canonical_column: target_tap_temp_c
+    source_unit: degC
+    canonical_unit: degC
+    role: predictor
+    availability: pre_production
+  lining_age:
+    canonical_column: refractory_lining_heat_age
+    source_unit: heats
+    canonical_unit: heats
+    role: predictor
+    availability: pre_production
+  meltshop_waste_t:
+    canonical_column: metallic_waste_loss_t
+    source_unit: metric_ton
+    canonical_unit: metric_ton
+    role: target
+    availability: post_production

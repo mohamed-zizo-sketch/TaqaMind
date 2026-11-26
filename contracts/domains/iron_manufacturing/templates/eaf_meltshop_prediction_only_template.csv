@@ -1,0 +1,4 @@
+heat_id,production_order_id,planned_start_ts,furnace_id,shift_code,steel_grade_code,planned_scrap_mass_t,planned_dri_mass_t,planned_tap_mass_t,planned_scrap_grade_mix_code,expected_scrap_contaminant_pct,dri_metallization_pct,dri_gangue_pct,planned_hot_heel_mass_t,planned_lime_flux_kg,planned_oxygen_nm3,target_tap_temp_c,refractory_lining_heat_age
+H-00001,ORD-EAF-0001,2026-01-01T06:00:00,EAF_1,MORNING,B500DWR,35.49,58.98,87.75,HMS1_HEAVY,4.37,94.59,4.58,10.03,4038.7,3713.7,1634.9,2
+H-00002,ORD-EAF-0001,2026-01-01T07:15:00,EAF_2,MORNING,B500DWR,34.87,63.26,90.5,LOCAL_LIGHT,1.94,94.26,4.05,9.54,4656.7,4332.4,1647.0,3
+H-00003,ORD-EAF-0001,2026-01-01T08:30:00,EAF_1,EVENING,B500B,43.41,86.38,120.03,HMS1_HEAVY,4.04,94.61,6.72,12.25,4986.2,2993.7,1647.9,4

@@ -1,0 +1,95 @@
+{
+  "phase": "V2 Phase 4",
+  "domain": "iron_manufacturing",
+  "status": "reference_audit_and_synthetic_verification_design",
+  "public_real_preproduction_energy_datasets_found": 0,
+  "audited_public_energy_datasets": {
+    "uci_steel_industry_energy_id_851": {
+      "file": "Steel_industry_data.csv",
+      "sha256": "9b1cee6f9cb9cd9df2b95814ca90a9a2ff15b7f5f1fba0fae3c643e82072eacc",
+      "rows": 35040,
+      "columns": 11,
+      "exact_duplicates": 0,
+      "co2_zero_pct": 59.9,
+      "granularity": "15_minute_plant_meter",
+      "classification": "unsuitable_for_v2_preproduction_training",
+      "reasons": [
+        "15-minute plant telemetry cannot align with heat/lot/batch granularity",
+        "zero production tonnage, heat/lot IDs, or recipe predictors",
+        "no process separation across EAF, rolling mill, or scrap yard",
+        "Korean plant profile does not represent Egyptian DRI+EAF mills"
+      ]
+    },
+    "zenodo_21447633_eaf_flexibility": {
+      "classification": "unsuitable_for_ml_power_scale_reference_only",
+      "synthetic_heats": 8,
+      "eaf_power_modes_mw": [75, 85, 95]
+    }
+  },
+  "eaf_meltshop_reference": {
+    "reused_v1_predictors": [
+      "heat_id",
+      "production_order_id",
+      "planned_start_ts",
+      "furnace_id",
+      "steel_grade_code",
+      "planned_scrap_mass_t",
+      "planned_dri_mass_t",
+      "planned_tap_mass_t",
+      "target_tap_temp_c",
+      "planned_total_metallic_charge_t",
+      "planned_dri_share_pct"
+    ],
+    "v2_energy_fields": [
+      "rated_kw",
+      "planned_duration_hr",
+      "planned_utilization_pct",
+      "theoretical_nameplate_energy_kwh",
+      "total_electrical_energy_kwh"
+    ],
+    "reference_sec_kwh_per_ton": {
+      "scrap_eaf": [350, 500],
+      "dri_scrap_eaf": [500, 700]
+    }
+  },
+  "rebar_hot_rolling_reference": {
+    "reused_v1_concepts": [
+      "rolling_lot_id",
+      "production_order_id",
+      "planned_start_ts",
+      "mill_line_id",
+      "planned_billet_mass_t",
+      "target_rebar_diameter_mm"
+    ],
+    "v2_energy_fields": [
+      "rated_kw",
+      "planned_duration_hr",
+      "planned_utilization_pct",
+      "theoretical_nameplate_energy_kwh",
+      "total_electrical_energy_kwh"
+    ],
+    "reference_sec_kwh_per_ton": {
+      "typical_electricity": [80, 120],
+      "bat_lbnl_electricity": [50, 70],
+      "reheating_natural_gas_gj_per_ton_excluded": [1.1, 2.5]
+    }
+  },
+  "scrap_yard_reception_reference": {
+    "v1_reference_datasets": ["scrap_A.csv (16,369 rows)", "scrap_C.csv (9,399 rows)"],
+    "v2_energy_fields": [
+      "reception_lot_id",
+      "delivery_batch_id",
+      "planned_start_ts",
+      "planned_scrap_mass_t",
+      "rated_kw",
+      "planned_duration_hr",
+      "planned_utilization_pct",
+      "theoretical_nameplate_energy_kwh",
+      "total_electrical_energy_kwh"
+    ],
+    "reference_equipment_rated_kw": {
+      "magnetic_cranes": [75, 350],
+      "hydraulic_shears_and_balers": [150, 1200]
+    }
+  }
+}

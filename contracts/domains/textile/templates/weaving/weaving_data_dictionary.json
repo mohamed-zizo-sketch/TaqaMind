@@ -1,0 +1,351 @@
+{
+  "domain": "textile",
+  "process": "weaving",
+  "dataset_id": "weaving_beam_batches",
+  "version": "1.0.0",
+  "granularity": "beam_batch",
+  "business_keys": [
+    "batch_record_id"
+  ],
+  "grouping_columns": [
+    "order_id"
+  ],
+  "time_column": null,
+  "target": {
+    "name": "waste_length_yds",
+    "unit": "yd",
+    "kind": "quantity",
+    "confirmation_status": "unconfirmed",
+    "derived_rate": {
+      "name": "weaving_waste_rate_pct",
+      "numerator": "waste_length_yds",
+      "denominator": "planned_beam_length_yds",
+      "granularity": "beam_batch",
+      "output_unit": "%",
+      "multiplier": 100.0
+    }
+  },
+  "columns": [
+    {
+      "name": "batch_record_id",
+      "display_name": "Beam Batch Record ID",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Record_ID"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Unique weaving beam batch or loom-run record identifier."
+    },
+    {
+      "name": "order_id",
+      "display_name": "Production Order ID",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "ID"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Production planning order identifier used for group-safe splitting."
+    },
+    {
+      "name": "planned_beam_length_yds",
+      "display_name": "Planned Beam Length (yds)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "yd",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Req_beam_length(yds)",
+        "Rec_Beam_length(yds)"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": false,
+        "maximum_inclusive": true
+      },
+      "description": "Planned weaver beam length prior to loom execution."
+    },
+    {
+      "name": "planned_finish_fabric_yds",
+      "display_name": "Planned Finished Fabric (yds)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "yd",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Req_Finish_Fabrics"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": false,
+        "maximum_inclusive": true
+      },
+      "description": "Target finished fabric length planned for the weaving order."
+    },
+    {
+      "name": "planned_grey_fabric_yds",
+      "display_name": "Planned Grey Fabric (yds)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "yd",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Req_grey_fabric"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": false,
+        "maximum_inclusive": true
+      },
+      "description": "Planned grey fabric yardage before finishing."
+    },
+    {
+      "name": "fabric_allowance_pct",
+      "display_name": "Fabric Allowance (%)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "%",
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [
+        "Fabric_Allowance"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Planned finishing and process fabric allowance percentage."
+    },
+    {
+      "name": "shrink_allowance_pct",
+      "display_name": "Shrinkage Allowance (%)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "%",
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [
+        "Shrink_allow"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Expected pre-production shrinkage allowance percentage."
+    },
+    {
+      "name": "warp_count_ne",
+      "display_name": "Warp Yarn Count (Ne)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "Ne",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "warp_count"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "English cotton count of longitudinal warp yarn."
+    },
+    {
+      "name": "weft_count_ne",
+      "display_name": "Weft Yarn Count (Ne)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "Ne",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "weft_count"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "English cotton count of transverse weft yarn."
+    },
+    {
+      "name": "warp_ends_per_inch",
+      "display_name": "Warp Ends Per Inch (EPI)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "ends/in",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "epi"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Number of warp threads per inch in fabric specification."
+    },
+    {
+      "name": "weft_picks_per_inch",
+      "display_name": "Weft Picks Per Inch (PPI)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "picks/in",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "ppi"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Number of weft picks per inch in fabric specification."
+    },
+    {
+      "name": "fabric_construction",
+      "display_name": "Fabric Construction",
+      "role": "predictor",
+      "data_type": "category",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [
+        "Construction"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Planned woven fabric construction code."
+    },
+    {
+      "name": "total_thread_density_per_inch",
+      "display_name": "Total Thread Density (EPI + PPI)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "threads/in",
+      "availability": "pre_production",
+      "origin": "derived",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [],
+      "derived_from": [
+        "warp_ends_per_inch",
+        "weft_picks_per_inch"
+      ],
+      "constraints": {
+        "minimum": 2.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Derived sum of warp EPI and weft PPI from pre-production inputs."
+    },
+    {
+      "name": "waste_length_yds",
+      "display_name": "Rejected & Cut Waste Length (yds)",
+      "role": "target",
+      "data_type": "float",
+      "unit": "yd",
+      "availability": "post_production",
+      "origin": "measured",
+      "required_for_training": true,
+      "required_for_prediction": false,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Rej_and_cut_Piece"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Measured rejected fabric and cut-piece waste length per beam batch."
+    }
+  ]
+}
