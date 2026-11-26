@@ -11,6 +11,7 @@ from taqamind.domains.iron_manufacturing.services.prediction_service import (
 from taqamind.domains.iron_manufacturing.services.templates import (
     build_feature_dictionary_records,
     generate_all_contracts_and_templates,
+    generate_energy_process_templates,
     generate_process_templates,
 )
 from taqamind.domains.iron_manufacturing.services.training_service import (
@@ -30,6 +31,7 @@ __all__ = [
     "build_default_training_configuration",
     "build_feature_dictionary_records",
     "generate_all_contracts_and_templates",
+    "generate_energy_process_templates",
     "generate_process_templates",
     "register_dataset_lineage",
 ]

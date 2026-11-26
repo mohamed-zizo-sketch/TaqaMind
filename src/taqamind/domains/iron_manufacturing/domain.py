@@ -19,6 +19,12 @@ from taqamind.core.contracts import (
 from taqamind.core.feature_engineering import DerivedFeatureSpec
 from taqamind.core.registry import DomainRegistry
 from taqamind.domains.iron_manufacturing.config import DOMAIN_ID, DOMAIN_VERSION
+from taqamind.domains.iron_manufacturing.energy_contracts import (
+    EAF_ENERGY_TASK_ID,
+    REBAR_ENERGY_TASK_ID,
+    SCRAP_YARD_ENERGY_TASK_ID,
+    build_iron_energy_task_contract,
+)
 from taqamind.domains.iron_manufacturing.processes.eaf_meltshop import (
     EAF_FORBIDDEN_PREDICTOR_NAMES,
     EAF_PROCESS_ID,
@@ -53,6 +59,12 @@ PROCESS_DEFAULT_TASKS: dict[str, str] = {
     SCRAP_YARD_PROCESS_ID: SCRAP_YARD_TASK_ID,
 }
 
+PROCESS_ENERGY_TASKS: dict[str, str] = {
+    EAF_PROCESS_ID: EAF_ENERGY_TASK_ID,
+    REBAR_PROCESS_ID: REBAR_ENERGY_TASK_ID,
+    SCRAP_YARD_PROCESS_ID: SCRAP_YARD_ENERGY_TASK_ID,
+}
+
 PROCESS_PHYSICAL_VALIDATORS: dict[str, Callable[[pd.DataFrame], list[ValidationIssue]]] = {
     EAF_PROCESS_ID: validate_eaf_physical_rules,
     REBAR_PROCESS_ID: validate_rebar_physical_rules,
@@ -78,9 +90,23 @@ PROCESS_FORBIDDEN_PREDICTORS: dict[str, frozenset[str]] = {
 }
 
 
+def _attach_energy_task(
+    process: ProcessContract,
+    *,
+    energy_confirmation: TargetConfirmation | None = None,
+) -> ProcessContract:
+    """Append the V2 electrical energy task to a process without altering V1 waste tasks."""
+    energy_task = build_iron_energy_task_contract(
+        process.process_id,
+        confirmation=energy_confirmation,
+    )
+    return process.model_copy(update={"tasks": (*process.tasks, energy_task)})
+
+
 def build_iron_manufacturing_domain(
     *,
     confirmations: dict[str, TargetConfirmation] | None = None,
+    energy_confirmations: dict[str, TargetConfirmation] | None = None,
 ) -> DomainContract:
     """Build the versioned Iron Manufacturing DomainContract.
 
@@ -88,10 +114,20 @@ def build_iron_manufacturing_domain(
     explicit factory confirmation is supplied.
     """
     conf_map = confirmations or {}
+    energy_conf_map = energy_confirmations or {}
     processes: tuple[ProcessContract, ...] = (
-        build_eaf_meltshop_process(confirmation=conf_map.get(EAF_PROCESS_ID)),
-        build_rebar_hot_rolling_process(confirmation=conf_map.get(REBAR_PROCESS_ID)),
-        build_scrap_yard_process(confirmation=conf_map.get(SCRAP_YARD_PROCESS_ID)),
+        _attach_energy_task(
+            build_eaf_meltshop_process(confirmation=conf_map.get(EAF_PROCESS_ID)),
+            energy_confirmation=energy_conf_map.get(EAF_PROCESS_ID),
+        ),
+        _attach_energy_task(
+            build_rebar_hot_rolling_process(confirmation=conf_map.get(REBAR_PROCESS_ID)),
+            energy_confirmation=energy_conf_map.get(REBAR_PROCESS_ID),
+        ),
+        _attach_energy_task(
+            build_scrap_yard_process(confirmation=conf_map.get(SCRAP_YARD_PROCESS_ID)),
+            energy_confirmation=energy_conf_map.get(SCRAP_YARD_PROCESS_ID),
+        ),
     )
     return DomainContract(
         domain_id=DOMAIN_ID,
@@ -100,7 +136,8 @@ def build_iron_manufacturing_domain(
         description=(
             "Configurable industrial ML domain for Egyptian iron and steel facilities "
             "(EAF primary meltshop, rebar hot rolling mill, and scrap yard reception). "
-            "Current executable ML scope is pre-production waste/scrap quantity prediction."
+            "Supports V1 pre-production waste prediction and V2 pre-production "
+            "electrical energy prediction."
         ),
         processes=processes,
     )
@@ -110,9 +147,13 @@ def register_iron_manufacturing(
     registry: DomainRegistry,
     *,
     confirmations: dict[str, TargetConfirmation] | None = None,
+    energy_confirmations: dict[str, TargetConfirmation] | None = None,
 ) -> DomainContract:
     """Register the Iron Manufacturing domain into the Shared Core DomainRegistry."""
-    domain = build_iron_manufacturing_domain(confirmations=confirmations)
+    domain = build_iron_manufacturing_domain(
+        confirmations=confirmations,
+        energy_confirmations=energy_confirmations,
+    )
     return registry.register(domain)
 
 
@@ -158,6 +199,10 @@ def get_iron_task(
             f"Supported: {sorted(PROCESS_DEFAULT_TASKS)}."
         )
     resolved_task_id = task_id or PROCESS_DEFAULT_TASKS[process_id]
+    if resolved_task_id in set(PROCESS_ENERGY_TASKS.values()):
+        energy_confs = {process_id: confirmation} if confirmation is not None else None
+        domain = build_iron_manufacturing_domain(energy_confirmations=energy_confs)
+        return domain.get_task(process_id=process_id, task_id=resolved_task_id)
     confirmations = {process_id: confirmation} if confirmation is not None else None
     domain = build_iron_manufacturing_domain(confirmations=confirmations)
     return domain.get_task(process_id=process_id, task_id=resolved_task_id)

@@ -14,12 +14,18 @@ from taqamind.core.contracts import (
     FeatureOrigin,
 )
 from taqamind.core.interfaces.serialization import serialize_contract
+from taqamind.domains.iron_manufacturing.common.energy_synthetic import (
+    generate_synthetic_iron_energy_dataset,
+)
 from taqamind.domains.iron_manufacturing.common.normalization import safe_export_csv
 from taqamind.domains.iron_manufacturing.common.synthetic import generate_synthetic_dataset
 from taqamind.domains.iron_manufacturing.domain import (
     PROCESS_DEFAULT_TASKS,
     build_iron_manufacturing_domain,
     get_iron_dataset_contract,
+)
+from taqamind.domains.iron_manufacturing.energy_contracts import (
+    get_iron_energy_dataset_contract,
 )
 
 
@@ -68,35 +74,33 @@ def build_feature_dictionary_records(contract: DatasetContract) -> list[dict[str
     return records
 
 
-def generate_process_templates(
-    process_id: str,
-    output_dir: Path | str,
+def _write_process_template_bundle(
     *,
-    sample_rows: int = 3,
-    seed: int = 42,
+    process_id: str,
+    contract: DatasetContract,
+    sample_hist: Any,
+    sample_pred: Any,
+    output_dir: Path | str,
+    filename_prefix: str,
 ) -> dict[str, Path]:
-    """Generate historical training CSV, prediction CSV, and schema artifacts for a process."""
+    """Write historical CSV, prediction CSV, feature dictionary, and mapping example."""
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    contract = get_iron_dataset_contract(process_id)
 
     hist_cols = _raw_columns_for_purpose(contract, DatasetPurpose.TRAINING)
     pred_cols = _raw_columns_for_purpose(contract, DatasetPurpose.PREDICTION)
 
-    sample_hist = generate_synthetic_dataset(
-        process_id, n_rows=sample_rows, seed=seed, include_target=True
-    )
-    sample_pred = generate_synthetic_dataset(
-        process_id, n_rows=sample_rows, seed=seed + 100, include_target=False
-    )
-
     hist_df = sample_hist.reindex(columns=hist_cols)
     pred_df = sample_pred.reindex(columns=pred_cols)
 
-    hist_path = safe_export_csv(hist_df, out_dir / f"{process_id}_historical_training_template.csv")
-    pred_path = safe_export_csv(pred_df, out_dir / f"{process_id}_prediction_only_template.csv")
+    hist_path = safe_export_csv(
+        hist_df, out_dir / f"{filename_prefix}_historical_training_template.csv"
+    )
+    pred_path = safe_export_csv(
+        pred_df, out_dir / f"{filename_prefix}_prediction_only_template.csv"
+    )
 
-    dict_path = out_dir / f"{process_id}_feature_dictionary.json"
+    dict_path = out_dir / f"{filename_prefix}_feature_dictionary.json"
     dict_path.write_text(
         json.dumps(build_feature_dictionary_records(contract), indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -118,7 +122,7 @@ def generate_process_templates(
             if col.origin != FeatureOrigin.DERIVED
         },
     }
-    mapping_path = out_dir / f"{process_id}_mapping_example.yaml"
+    mapping_path = out_dir / f"{filename_prefix}_mapping_example.yaml"
     mapping_path.write_text(
         yaml.safe_dump(mapping_example, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
@@ -130,6 +134,56 @@ def generate_process_templates(
         "feature_dictionary": dict_path,
         "mapping_example": mapping_path,
     }
+
+
+def generate_process_templates(
+    process_id: str,
+    output_dir: Path | str,
+    *,
+    sample_rows: int = 3,
+    seed: int = 42,
+) -> dict[str, Path]:
+    """Generate V1 waste historical CSV, prediction CSV, and schema artifacts."""
+    contract = get_iron_dataset_contract(process_id)
+    sample_hist = generate_synthetic_dataset(
+        process_id, n_rows=sample_rows, seed=seed, include_target=True
+    )
+    sample_pred = generate_synthetic_dataset(
+        process_id, n_rows=sample_rows, seed=seed + 100, include_target=False
+    )
+    return _write_process_template_bundle(
+        process_id=process_id,
+        contract=contract,
+        sample_hist=sample_hist,
+        sample_pred=sample_pred,
+        output_dir=output_dir,
+        filename_prefix=process_id,
+    )
+
+
+def generate_energy_process_templates(
+    process_id: str,
+    output_dir: Path | str,
+    *,
+    sample_rows: int = 3,
+    seed: int = 42,
+) -> dict[str, Path]:
+    """Generate V2 electrical energy historical CSV, prediction CSV, and schema artifacts."""
+    contract = get_iron_energy_dataset_contract(process_id)
+    sample_hist = generate_synthetic_iron_energy_dataset(
+        process_id, n_rows=sample_rows, seed=seed, include_target=True
+    )
+    sample_pred = generate_synthetic_iron_energy_dataset(
+        process_id, n_rows=sample_rows, seed=seed + 100, include_target=False
+    )
+    return _write_process_template_bundle(
+        process_id=process_id,
+        contract=contract,
+        sample_hist=sample_hist,
+        sample_pred=sample_pred,
+        output_dir=output_dir,
+        filename_prefix=f"{process_id}_energy",
+    )
 
 
 def generate_all_contracts_and_templates(
