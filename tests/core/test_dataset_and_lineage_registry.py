@@ -368,3 +368,187 @@ def test_indexed_lineage_lookup_scales_for_large_factory_history(tmp_path: Path)
         assert res.status == RecordMatchStatus.EXACT_MATCH
     elapsed = time.perf_counter() - started
     assert elapsed < 5.0
+
+
+def test_record_membership_builder_distinguishes_new_exact_corrected_and_distinct_keys(
+    tmp_path: Path,
+) -> None:
+    from taqamind.core.contracts import (
+        DatasetContract,
+        DataType,
+        FeatureAvailability,
+        FeatureConstraints,
+        FeatureContract,
+        FeatureOrigin,
+        FeatureRole,
+        MissingValuePolicy,
+        PredictionContext,
+        TargetContract,
+        TargetDefinition,
+        TargetKind,
+        TaskType,
+    )
+    from taqamind.core.ingestion import CsvDataIngestion
+    from taqamind.core.interfaces import ApprovedMapping
+    from taqamind.core.lineage import RecordMembershipBuilder
+    from taqamind.core.mapping import DeterministicColumnMapper
+
+    storage = LocalDatasetArtifactStorage(tmp_path / "artifacts")
+    ds_reg = LocalDatasetRegistry(tmp_path / "reg", storage)
+    lin_reg = LocalRecordLineageRegistry(tmp_path / "reg", dataset_registry=ds_reg)
+    builder = RecordMembershipBuilder(storage, lin_reg)
+
+    factory_id = uuid4()
+    batch_id = FeatureContract(
+        name="batch_id",
+        display_name="Batch ID",
+        description="Key",
+        data_type=DataType.STRING,
+        role=FeatureRole.IDENTIFIER,
+        availability=FeatureAvailability.PRE_PRODUCTION,
+        origin=FeatureOrigin.RECORDED,
+        missing_policy=MissingValuePolicy.REJECT,
+    )
+    qty = FeatureContract(
+        name="qty",
+        display_name="Qty",
+        description="Planned",
+        data_type=DataType.FLOAT,
+        role=FeatureRole.PREDICTOR,
+        availability=FeatureAvailability.PRE_PRODUCTION,
+        origin=FeatureOrigin.RECORDED,
+        constraints=FeatureConstraints(minimum=0.0, minimum_inclusive=False),
+        missing_policy=MissingValuePolicy.REJECT,
+    )
+    waste = FeatureContract(
+        name="waste",
+        display_name="Waste",
+        description="Target",
+        data_type=DataType.FLOAT,
+        unit="kg",
+        role=FeatureRole.TARGET,
+        availability=FeatureAvailability.POST_PRODUCTION,
+        origin=FeatureOrigin.MEASURED,
+        constraints=FeatureConstraints(minimum=0.0),
+        missing_policy=MissingValuePolicy.REJECT,
+    )
+    contract = DatasetContract(
+        dataset_id="ds_mem",
+        version="1.0.0",
+        domain="textile",
+        process="weaving",
+        description="Membership test",
+        granularity="batch",
+        features=(batch_id, qty),
+        target=TargetContract(
+            target_id="t1",
+            feature=waste,
+            task_type=TaskType.REGRESSION,
+            target_kind=TargetKind.QUANTITY,
+            definition=TargetDefinition(definition="Waste", granularity="batch"),
+        ),
+        prediction_context=PredictionContext(description="Pred"),
+        business_keys=("batch_id",),
+    )
+    scope = RecordScope(
+        factory_id=factory_id,
+        domain="textile",
+        process="weaving",
+        dataset_id="ds_mem",
+        identity_namespace="production_record",
+    )
+
+    def _prepare(csv_bytes: bytes) -> DatasetArtifact:
+        rev_id = uuid4()
+        ctx = PipelineContext(
+            factory_id=factory_id,
+            dataset_revision_id=rev_id,
+            domain="textile",
+            process="weaving",
+            task_id="t1",
+            dataset_id="ds_mem",
+            contract_version="1.0.0",
+            task_version="1.0.0",
+            target_version="1.0.0",
+            purpose=DatasetPurpose.TRAINING,
+        )
+        ref = ArtifactReference(
+            factory_id=factory_id,
+            format=ArtifactFormat.CSV,
+            content_sha256=sha256(csv_bytes).hexdigest(),
+            size_bytes=len(csv_bytes),
+        )
+        storage.put(factory_id=factory_id, reference=ref, stream=BytesIO(csv_bytes))
+        raw = DatasetArtifact(
+            metadata=DatasetMetadata(
+                revision_id=rev_id,
+                root_revision_id=rev_id,
+                factory_id=factory_id,
+                domain="textile",
+                process="weaving",
+                dataset_id="ds_mem",
+                contract_version="1.0.0",
+                task_id="t1",
+                task_version="1.0.0",
+                target_version="1.0.0",
+                source_file_sha256=ref.content_sha256,
+                state=DatasetState.RAW,
+            ),
+            reference=ref,
+        )
+        ds_reg.register(factory_id=factory_id, artifact=raw)
+        ing = CsvDataIngestion(storage).ingest(
+            context=ctx, artifact=raw, contract=contract
+        ).output_artifact
+        assert ing is not None
+        ds_reg.register(factory_id=factory_id, artifact=ing)
+        mapper = DeterministicColumnMapper(storage)
+        prop = mapper.propose_mapping(context=ctx, artifact=ing, contract=contract)
+        entries = tuple(
+            e.model_copy(update={"source_unit": e.canonical_unit})
+            if e.canonical_unit is not None
+            else e
+            for e in prop.entries
+        )
+        mapped = mapper.apply_mapping(
+            context=ctx,
+            artifact=ing,
+            contract=contract,
+            mapping=ApprovedMapping(
+                proposal=prop.model_copy(update={"entries": entries}),
+                approved_by="test",
+                confirmed_source_columns=tuple(e.source_column for e in entries),
+            ),
+        ).output_artifact
+        assert mapped is not None
+        ds_reg.register(factory_id=factory_id, artifact=mapped)
+        return mapped
+
+    # 1. Initial upload: 2 distinct business keys with identical predictor/target values.
+    art1 = _prepare(b"batch_id,qty,waste\n001,100.0,2.0\n002,100.0,2.0\n")
+    s1 = builder.build_and_register(scope=scope, artifact=art1, contract=contract)
+    assert s1.new_records == 2
+    assert s1.manifest.memberships[0].record_id != s1.manifest.memberships[1].record_id
+
+    # 2. Re-upload 2 known + 1 new record.
+    art2 = _prepare(b"batch_id,qty,waste\n001,100.0,2.0\n002,100.0,2.0\n003,150.0,3.0\n")
+    s2 = builder.build_and_register(scope=scope, artifact=art2, contract=contract)
+    assert s2.exact_matches == 2
+    assert s2.new_records == 1
+
+    # 3. Unconfirmed correction is rejected; confirmed correction increments version.
+    art3 = _prepare(b"batch_id,qty,waste\n001,100.0,5.0\n")
+    with pytest.raises(ValueError, match="without explicit confirmation"):
+        builder.build_and_register(scope=scope, artifact=art3, contract=contract)
+    s3 = builder.build_and_register(
+        scope=scope,
+        artifact=art3,
+        contract=contract,
+        confirm_updates_by="qa_lead",
+        update_reason="Scale recalibration",
+    )
+    assert s3.content_changed == 1
+    versions = lin_reg.get_versions(
+        scope=scope, record_id=s1.manifest.memberships[0].record_id
+    )
+    assert len(versions) == 2
