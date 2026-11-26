@@ -1,0 +1,64 @@
+{
+  "phase": "V2 Phase 4",
+  "status": "reference_audit_and_synthetic_verification_design",
+  "public_real_energy_datasets_found": 0,
+  "weaving_reference": {
+    "v1_dataset": "full_weaving_dataset.csv",
+    "rows": 121148,
+    "columns": 18,
+    "exact_duplicates": 74448,
+    "reusable_v1_predictors": [
+      "planned_beam_length_yds",
+      "planned_finish_fabric_yds",
+      "planned_grey_fabric_yds",
+      "fabric_allowance_pct",
+      "shrink_allowance_pct",
+      "warp_count_ne",
+      "weft_count_ne",
+      "warp_ends_per_inch",
+      "weft_picks_per_inch",
+      "fabric_construction",
+      "total_thread_density_per_inch"
+    ],
+    "required_v2_energy_additions": [
+      "loom_type",
+      "loom_rated_power_kw",
+      "planned_loom_speed_rpm",
+      "fabric_width_cm",
+      "planned_operating_duration_hr",
+      "compressed_air_pressure_bar",
+      "total_electrical_energy_kwh"
+    ],
+    "reference_sec_kwh_per_kg": [1.58, 5.8]
+  },
+  "knitting_reference": {
+    "v1_dataset": "knitting_dataset.csv",
+    "rows": 12569,
+    "columns": 38,
+    "exact_duplicates": 6,
+    "reusable_v1_predictors": [
+      "planned_qty_kg",
+      "machine_brand",
+      "machine_diameter_in",
+      "machine_gauge_e",
+      "yarn_count_tex_1",
+      "stitch_length_mm",
+      "target_gsm",
+      "number_of_feeders",
+      "knitting_tightness_factor"
+    ],
+    "required_v2_energy_additions": [
+      "knitting_machine_type",
+      "machine_rated_power_kw",
+      "planned_machine_speed_rpm",
+      "planned_operating_duration_hr",
+      "fabric_structure",
+      "total_electrical_energy_kwh"
+    ],
+    "reference_sec_kwh_per_kg": {
+      "circular": [0.5, 1.5],
+      "flat_panel": [0.85, 1.2],
+      "flat_fashioned": [4.59, 5.42]
+    }
+  }
+}
