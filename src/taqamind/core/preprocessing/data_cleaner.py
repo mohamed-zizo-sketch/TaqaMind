@@ -258,13 +258,21 @@ class ContractDataCleaner(DataCleaner):
             if bool(blank_mask.any()):
                 result = result.mask(blank_mask, pd.NA)
 
-        elif feature.data_type in {DataType.FLOAT, DataType.INTEGER, DataType.BOOLEAN}:
+        elif feature.data_type in {
+            DataType.FLOAT,
+            DataType.INTEGER,
+            DataType.BOOLEAN,
+            DataType.DATE,
+            DataType.DATETIME,
+        }:
             conversion = self._converter.convert(result, data_type=feature.data_type)
             if not conversion.is_valid:
                 code_map = {
                     DataType.FLOAT: "CLEANING_INVALID_FLOAT",
                     DataType.INTEGER: "CLEANING_INVALID_INTEGER",
                     DataType.BOOLEAN: "CLEANING_INVALID_BOOLEAN",
+                    DataType.DATE: "CLEANING_INVALID_TIMESTAMP",
+                    DataType.DATETIME: "CLEANING_INVALID_TIMESTAMP",
                 }
                 msg_map = {
                     DataType.FLOAT: (
@@ -273,6 +281,12 @@ class ContractDataCleaner(DataCleaner):
                     DataType.INTEGER: f"Column '{feature.name}' contains non-integer values.",
                     DataType.BOOLEAN: (
                         f"Column '{feature.name}' contains invalid boolean literals."
+                    ),
+                    DataType.DATE: (
+                        f"Column '{feature.name}' contains invalid date values."
+                    ),
+                    DataType.DATETIME: (
+                        f"Column '{feature.name}' contains invalid datetime values."
                     ),
                 }
                 issues.append(
@@ -285,27 +299,6 @@ class ContractDataCleaner(DataCleaner):
                 )
             else:
                 result = conversion.values
-
-        elif feature.data_type in {DataType.DATE, DataType.DATETIME}:
-            parsed = pd.to_datetime(
-                result,
-                errors="coerce",
-                utc=(feature.data_type == DataType.DATETIME),
-            )
-            invalid_mask = result.notna() & parsed.isna()
-            if bool(invalid_mask.any()):
-                issues.append(
-                    self._blocking_issue(
-                        code="CLEANING_INVALID_TIMESTAMP",
-                        feature=feature,
-                        indices=np.flatnonzero(invalid_mask.to_numpy()),
-                        message=f"Column '{feature.name}' contains invalid date/datetime values.",
-                    )
-                )
-            else:
-                fmt = "%Y-%m-%d" if feature.data_type == DataType.DATE else "%Y-%m-%dT%H:%M:%SZ"
-                formatted = parsed.dt.strftime(fmt)
-                result = formatted.where(result.notna(), pd.NA)
 
         missing_indices = np.flatnonzero(result.isna().to_numpy())
         if len(missing_indices) > 0 and feature.missing_policy == MissingValuePolicy.REJECT:

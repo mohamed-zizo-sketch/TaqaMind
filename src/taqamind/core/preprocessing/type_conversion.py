@@ -3,6 +3,7 @@
 import math
 import re
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 
 import numpy as np
@@ -37,8 +38,13 @@ class ContractTypeConverter:
     def convert(self, series: pd.Series, *, data_type: DataType) -> TypeConversionResult:
         """Return typed values; callers must block on invalid_positions before use."""
         if data_type not in {
-            DataType.STRING, DataType.CATEGORY, DataType.INTEGER, DataType.FLOAT,
+            DataType.STRING,
+            DataType.CATEGORY,
+            DataType.INTEGER,
+            DataType.FLOAT,
             DataType.BOOLEAN,
+            DataType.DATE,
+            DataType.DATETIME,
         }:
             raise ValueError(f"Type conversion not supported yet: {data_type}.")
 
@@ -60,6 +66,8 @@ class ContractTypeConverter:
             DataType.INTEGER: "Int64",
             DataType.FLOAT: "Float64",
             DataType.BOOLEAN: "boolean",
+            DataType.DATE: "string",
+            DataType.DATETIME: "string",
         }[data_type]
         converted = pd.Series(values, index=series.index, name=series.name, dtype=dtype)
         return TypeConversionResult(converted, tuple(invalid))
@@ -78,6 +86,36 @@ class ContractTypeConverter:
             if token in _FALSE:
                 return False
             raise ValueError("Invalid boolean literal.")
+
+        if data_type == DataType.DATE:
+            if isinstance(value, datetime):
+                return value.date().isoformat()
+            if isinstance(value, date):
+                return value.isoformat()
+            token = str(value).strip()
+            if not token:
+                raise ValueError("Invalid date literal.")
+            try:
+                parsed_date = date.fromisoformat(token)
+                return parsed_date.isoformat()
+            except ValueError:
+                ts = pd.to_datetime(token, format="mixed", errors="raise")
+                if pd.isna(ts):
+                    raise ValueError("Invalid date literal.") from None
+                return ts.date().isoformat()
+
+        if data_type == DataType.DATETIME:
+            if isinstance(value, datetime):
+                dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+                return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            token = str(value).strip()
+            if not token:
+                raise ValueError("Invalid datetime literal.")
+            ts = pd.to_datetime(token, format="mixed", utc=True, errors="raise")
+            if pd.isna(ts):
+                raise ValueError("Invalid datetime literal.")
+            py_dt = ts.to_pydatetime()
+            return py_dt.isoformat().replace("+00:00", "Z")
 
         if isinstance(value, (bool, np.bool_)):
             raise ValueError("Boolean is not a numeric measurement.")

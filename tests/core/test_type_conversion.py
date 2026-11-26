@@ -82,7 +82,26 @@ def test_invalid_positions_are_not_index_labels():
     assert result.values.index.tolist() == [9, 9, 20]
 
 
-@pytest.mark.parametrize("data_type", [DataType.DATE, DataType.DATETIME])
-def test_dates_are_deferred(data_type):
-    with pytest.raises(ValueError, match="not supported yet"):
-        ContractTypeConverter().convert(pd.Series(["2026-11-25"]), data_type=data_type)
+def test_date_and_datetime_utc_and_precision_preservation() -> None:
+    date_res = ContractTypeConverter().convert(
+        pd.Series(["2026-11-25", "not-a-date", pd.NA]), data_type=DataType.DATE
+    )
+    assert date_res.invalid_positions == (1,)
+    assert date_res.values.iloc[0] == "2026-11-25"
+    assert pd.isna(date_res.values.iloc[2])
+
+    dt_res = ContractTypeConverter().convert(
+        pd.Series(
+            [
+                "2026-11-25T14:30:05.123456+02:00",
+                "2026-11-25T12:30:05Z",
+                "invalid-ts",
+                pd.NA,
+            ]
+        ),
+        data_type=DataType.DATETIME,
+    )
+    assert dt_res.invalid_positions == (2,)
+    assert dt_res.values.iloc[0] == "2026-11-25T12:30:05.123456Z"
+    assert dt_res.values.iloc[1] == "2026-11-25T12:30:05Z"
+    assert pd.isna(dt_res.values.iloc[3])

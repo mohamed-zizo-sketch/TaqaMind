@@ -412,6 +412,8 @@ class ContractSemanticValidator(SemanticValidator):
             DataType.INTEGER,
             DataType.FLOAT,
             DataType.BOOLEAN,
+            DataType.DATE,
+            DataType.DATETIME,
         }:
             conversion = self._converter.convert(series, data_type=data_type)
             numeric_values = (
@@ -421,7 +423,4 @@ class ContractSemanticValidator(SemanticValidator):
             )
             return numeric_values, np.asarray(conversion.invalid_positions, dtype=int)
 
-        # DATE or DATETIME (deferred until AUD-007/AUD-010).
-        parsed = pd.to_datetime(series, errors="coerce")
-        bad_mask = non_null_mask & parsed.isna()
-        return None, np.flatnonzero(bad_mask.to_numpy())
+        raise ValueError(f"Unsupported data type: {data_type}")
