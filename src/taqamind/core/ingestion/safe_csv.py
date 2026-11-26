@@ -20,17 +20,30 @@ class SafeCsvReader:
     VERSION = "1.0.0"
 
     def __init__(
-        self, *, delimiter: str = ",", max_rows: int | None = None
+        self,
+        *,
+        delimiter: str = ",",
+        max_rows: int | None = None,
+        max_bytes: int | None = None,
+        max_columns: int | None = None,
     ) -> None:
         if delimiter not in {",", ";", "\t", "|"}:
             raise ValueError("Unsupported CSV delimiter.")
         if max_rows is not None and max_rows <= 0:
             raise ValueError("max_rows must be positive when provided.")
+        if max_bytes is not None and max_bytes <= 0:
+            raise ValueError("max_bytes must be positive when provided.")
+        if max_columns is not None and max_columns <= 0:
+            raise ValueError("max_columns must be positive when provided.")
         self._delimiter = delimiter
         self._max_rows = max_rows
+        self._max_bytes = max_bytes
+        self._max_columns = max_columns
 
     def read(self, raw_bytes: bytes) -> pd.DataFrame:
         """Return strings, treating only empty fields as missing values."""
+        if self._max_bytes is not None and len(raw_bytes) > self._max_bytes:
+            raise SafeCsvError("CSV_BYTE_LIMIT_EXCEEDED", "CSV byte limit exceeded.")
         try:
             text = raw_bytes.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
@@ -43,6 +56,10 @@ class SafeCsvReader:
         reader = csv.reader(StringIO(text, newline=""), delimiter=self._delimiter, strict=True)
         try:
             headers = [header.strip() for header in next(reader)]
+            if self._max_columns is not None and len(headers) > self._max_columns:
+                raise SafeCsvError(
+                    "CSV_COLUMN_LIMIT_EXCEEDED", "CSV column count limit exceeded."
+                )
             if not headers or any(not header for header in headers):
                 raise SafeCsvError("CSV_BLANK_HEADER", "CSV header contains blank column names.")
             if len(headers) != len(set(headers)):

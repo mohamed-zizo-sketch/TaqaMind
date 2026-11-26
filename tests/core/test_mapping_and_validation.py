@@ -495,3 +495,74 @@ def test_mapping_rejects_large_fraction_without_ingestion_rounding(tmp_path: Pat
     assert result.output_artifact is None
     assert result.error is not None
     assert result.error.code == "UNIT_CONVERSION_FAILED"
+
+
+def test_semantic_validator_preserves_leading_zeros_and_literal_na_tokens(tmp_path: Path) -> None:
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    csv_bytes = (
+        b"batch_id,planned_qty,shift_code,waste_qty\n"
+        b"000123,100.0,A,0\n"
+        b"00123,200.0,B,1.5\n"
+        b"123,300.0,C,2.0\n"
+        b"NA,400.0,A,0.5\n"
+        b"NULL,500.0,B,0.0\n"
+    )
+    ingested = ingest_csv(storage, context, contract, csv_bytes)
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=contract)
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": "kg", "waste_qty": "kg"}
+    )
+    mapped = mapper.apply_mapping(
+        context=context, artifact=ingested, contract=contract, mapping=approved
+    ).output_artifact
+    assert mapped is not None
+
+    validator = ContractSemanticValidator(storage)
+    res = validator.validate(context=context, artifact=mapped, contract=contract)
+    assert res.status == ExecutionStatus.SUCCEEDED
+    assert res.report is not None
+    assert res.report.status == ReadinessStatus.READY
+
+
+def test_semantic_validator_rejects_invalid_numeric_tokens_and_integer_overflow(
+    tmp_path: Path,
+) -> None:
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+    payload = contract.model_dump()
+    payload["features"][1]["data_type"] = DataType.INTEGER
+    payload["features"][1]["constraints"] = {"minimum": 1, "minimum_inclusive": True}
+    int_contract = DatasetContract.model_validate(payload)
+
+    # Row 0: valid large int64 (9007199254740993)
+    # Row 1: literal "NA" in INTEGER column -> INVALID_DATA_TYPE (not missing!)
+    # Row 2: fractional "10.5" in INTEGER column -> INVALID_DATA_TYPE
+    # Row 3: int64 overflow -> INVALID_DATA_TYPE
+    csv_bytes = (
+        b"batch_id,planned_qty,waste_qty\n"
+        b"B1,9007199254740993,0\n"
+        b"B2,NA,1\n"
+        b"B3,10.5,1\n"
+        b"B4,99999999999999999999999,1\n"
+    )
+    ingested = ingest_csv(storage, context, int_contract, csv_bytes)
+    mapper = DeterministicColumnMapper(storage)
+    proposal = mapper.propose_mapping(context=context, artifact=ingested, contract=int_contract)
+    approved = approve_mapping_with_units(
+        proposal, source_units={"planned_qty": "kg", "waste_qty": "kg"}
+    )
+    mapped = mapper.apply_mapping(
+        context=context, artifact=ingested, contract=int_contract, mapping=approved
+    ).output_artifact
+    assert mapped is not None
+
+    validator = ContractSemanticValidator(storage)
+    res = validator.validate(context=context, artifact=mapped, contract=int_contract)
+    assert res.status == ExecutionStatus.BLOCKED
+    assert res.report is not None
+    type_issues = [i for i in res.report.issues if i.code == "INVALID_DATA_TYPE"]
+    assert len(type_issues) == 1
+    assert type_issues[0].affected_rows == 3
+    assert type_issues[0].row_samples == (1, 2, 3)

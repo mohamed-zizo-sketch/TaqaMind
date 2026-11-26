@@ -10,6 +10,7 @@ import pandas as pd
 from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import (
     DatasetPurpose,
+    DataType,
     FeatureOrigin,
     IssueImpact,
     PipelineStage,
@@ -17,6 +18,7 @@ from taqamind.core.contracts.enums import (
     ValidationSeverity,
 )
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
     ArtifactReference,
@@ -33,11 +35,13 @@ from taqamind.core.interfaces.processing import (
     validate_processing_input,
 )
 from taqamind.core.interfaces.results import (
+    ExecutionError,
     ExecutionStatus,
     StageResult,
     StageTiming,
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
+from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +60,9 @@ class DeterministicFeatureEngineer(FeatureEngineer):
         storage: DatasetArtifactStorage,
         *,
         derived_specs: tuple[DerivedFeatureSpec, ...] = (),
-        implementation_version: str = "0.1.0",
+        implementation_version: str = "0.2.0",
+        delimiter: str = ",",
+        max_rows: int | None = None,
     ) -> None:
         names = [spec.feature_name for spec in derived_specs]
         if len(names) != len(set(names)):
@@ -64,6 +70,8 @@ class DeterministicFeatureEngineer(FeatureEngineer):
         self._storage = storage
         self._specs = {spec.feature_name: spec for spec in derived_specs}
         self._implementation_version = implementation_version
+        self._reader = SafeCsvReader(delimiter=delimiter, max_rows=max_rows)
+        self._converter = ContractTypeConverter()
 
     def engineer(
         self,
@@ -84,9 +92,33 @@ class DeterministicFeatureEngineer(FeatureEngineer):
             factory_id=context.factory_id,
             reference=artifact.reference,
         ) as stream:
-            df = pd.read_csv(stream, keep_default_na=True)
+            raw_bytes = stream.read()
+
+        try:
+            df = self._reader.read(raw_bytes)
+        except SafeCsvError as exc:
+            return StageResult(
+                context=context,
+                stage=PipelineStage.FEATURE_ENGINEERING,
+                status=ExecutionStatus.FAILED,
+                input_artifact=artifact,
+                report=None,
+                timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
+                error=ExecutionError(code=exc.code, message=str(exc)),
+            )
 
         engineered_df = df.copy()
+        column_map = contract.column_map
+        for col_name in engineered_df.columns:
+            feature = column_map.get(str(col_name))
+            if feature is None:
+                continue
+            if feature.data_type in {DataType.INTEGER, DataType.FLOAT, DataType.BOOLEAN}:
+                conv = self._converter.convert(
+                    engineered_df[col_name], data_type=feature.data_type
+                )
+                if conv.is_valid:
+                    engineered_df[col_name] = conv.values
         issues: list[ValidationIssue] = []
 
         if (
@@ -248,7 +280,7 @@ class DeterministicFeatureEngineer(FeatureEngineer):
                 timing=StageTiming(started_at=started_at, finished_at=datetime.now(UTC)),
             )
 
-        engineered_bytes = engineered_df.to_csv(index=False).encode("utf-8")
+        engineered_bytes = engineered_df.to_csv(index=False, lineterminator="\r\n").encode("utf-8")
         engineered_ref = ArtifactReference(
             factory_id=context.factory_id,
             format=ArtifactFormat.CSV,
