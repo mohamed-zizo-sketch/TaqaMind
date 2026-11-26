@@ -76,6 +76,25 @@ def compute_weaving_thread_density_sum(
     return out
 
 
+def compute_theoretical_nameplate_energy_kwh(
+    rated_power_kw: pd.Series,
+    planned_duration_hr: pd.Series,
+    planned_utilization_pct: pd.Series | None = None,
+) -> pd.Series:
+    """Compute physics-informed nameplate energy kW * h * (utilization / 100)."""
+    kw = pd.to_numeric(rated_power_kw, errors="coerce")
+    hrs = pd.to_numeric(planned_duration_hr, errors="coerce")
+    if planned_utilization_pct is not None:
+        util = pd.to_numeric(planned_utilization_pct, errors="coerce").fillna(100.0)
+    else:
+        util = pd.Series(100.0, index=kw.index, dtype="float64")
+    valid = (kw > 0) & (hrs > 0) & (util > 0) & (util <= 100.0) & kw.notna() & hrs.notna()
+    out = pd.Series(np.nan, index=kw.index, dtype="float64")
+    if bool(valid.any()):
+        out.loc[valid] = kw.loc[valid] * hrs.loc[valid] * (util.loc[valid] / 100.0)
+    return out
+
+
 def classify_setup_scrap_regime(
     production_base: float | None,
     *,

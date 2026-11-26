@@ -318,10 +318,15 @@ def build_weaving_derived_specs() -> tuple[DerivedFeatureSpec, ...]:
 def build_weaving_process_contract(
     *,
     confirmation: TargetConfirmation | None = None,
+    energy_confirmation: TargetConfirmation | None = None,
 ) -> ProcessContract:
     """Build the Weaving ProcessContract for DomainRegistry registration."""
+    from taqamind.domains.textile.weaving.energy_contracts import (
+        build_weaving_energy_task_contract,
+    )
+
     dataset_contract = build_weaving_dataset_contract(confirmation=confirmation)
-    task = IndustrialTaskContract(
+    waste_task = IndustrialTaskContract(
         task_id=WEAVING_TASK_ID,
         version="1.0.0",
         display_name="Pre-Production Weaving Waste Quantity Regression",
@@ -330,10 +335,11 @@ def build_weaving_process_contract(
         task_type=TaskType.REGRESSION,
         dataset_contract=dataset_contract,
     )
+    energy_task = build_weaving_energy_task_contract(confirmation=energy_confirmation)
     return ProcessContract(
         process_id=WEAVING_PROCESS_ID,
         version="1.0.0",
         display_name="Weaving",
         description="Woven fabric manufacturing process (warp prep, beam mounting, loom).",
-        tasks=(task,),
+        tasks=(waste_task, energy_task),
     )
