@@ -1,0 +1,319 @@
+{
+  "domain": "textile",
+  "process": "knitting",
+  "dataset_id": "knitting_shift_runs",
+  "version": "1.0.0",
+  "granularity": "shift_run",
+  "business_keys": [
+    "run_id"
+  ],
+  "grouping_columns": [
+    "order_lot_id"
+  ],
+  "time_column": "production_date",
+  "target": {
+    "name": "waste_qty_kg",
+    "unit": "kg",
+    "kind": "quantity",
+    "confirmation_status": "unconfirmed",
+    "derived_rate": {
+      "name": "knitting_waste_rate_pct",
+      "numerator": "waste_qty_kg",
+      "denominator": "planned_qty_kg",
+      "granularity": "shift_run",
+      "output_unit": "%",
+      "multiplier": 100.0
+    }
+  },
+  "columns": [
+    {
+      "name": "run_id",
+      "display_name": "Knitting Run ID",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [],
+      "derived_from": [],
+      "constraints": {
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Unique knitting shift-run production identifier."
+    },
+    {
+      "name": "order_lot_id",
+      "display_name": "Order Lot Identifier",
+      "role": "identifier",
+      "data_type": "string",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Lot"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Knitting lot or customer order grouping identifier."
+    },
+    {
+      "name": "production_date",
+      "display_name": "Scheduled Production Date",
+      "role": "timestamp",
+      "data_type": "date",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Production Date"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Scheduled calendar date of the circular knitting run."
+    },
+    {
+      "name": "planned_qty_kg",
+      "display_name": "Planned Production Quantity (kg)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "kg",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": false,
+        "maximum_inclusive": true
+      },
+      "description": "Planned yarn mass allocated for the knitting shift run."
+    },
+    {
+      "name": "machine_brand",
+      "display_name": "Machine Brand",
+      "role": "predictor",
+      "data_type": "category",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [
+        "M/C Brand"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Circular knitting machine manufacturer."
+    },
+    {
+      "name": "machine_diameter_in",
+      "display_name": "Machine Cylinder Diameter (in)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "in",
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "m/c_dia"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Circular knitting cylinder diameter in inches."
+    },
+    {
+      "name": "machine_gauge_e",
+      "display_name": "Machine Gauge (E)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "E",
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "m/c_gauge"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Needles per inch (machine gauge)."
+    },
+    {
+      "name": "yarn_count_tex_1",
+      "display_name": "Primary Yarn Linear Density (tex)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "tex",
+      "availability": "pre_production",
+      "origin": "recorded",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Primary feeder yarn linear density in tex."
+    },
+    {
+      "name": "stitch_length_mm",
+      "display_name": "Planned Stitch Length (mm)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "mm",
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": true,
+      "required_for_prediction": true,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "stitch_1",
+        "stitch"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.5,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Target loop length per stitch in millimeters."
+    },
+    {
+      "name": "target_gsm",
+      "display_name": "Target Fabric GSM (g/m2)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "g/m2",
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [
+        "GSM"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 20.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Specified target fabric areal weight in grams per square meter."
+    },
+    {
+      "name": "number_of_feeders",
+      "display_name": "Active Yarn Feeders Count",
+      "role": "predictor",
+      "data_type": "integer",
+      "unit": null,
+      "availability": "pre_production",
+      "origin": "configured",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 1.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Number of active yarn feeds configured for the knit structure."
+    },
+    {
+      "name": "knitting_tightness_factor",
+      "display_name": "Knitting Tightness Factor (K)",
+      "role": "predictor",
+      "data_type": "float",
+      "unit": "tex^0.5/cm",
+      "availability": "pre_production",
+      "origin": "derived",
+      "required_for_training": false,
+      "required_for_prediction": false,
+      "nullable": true,
+      "missing_policy": "impute",
+      "aliases": [],
+      "derived_from": [
+        "yarn_count_tex_1",
+        "stitch_length_mm"
+      ],
+      "constraints": {
+        "minimum": 0.1,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Derived Munden tightness factor sqrt(tex) / (stitch_length_mm / 10)."
+    },
+    {
+      "name": "waste_qty_kg",
+      "display_name": "Knitting Waste Quantity (kg)",
+      "role": "target",
+      "data_type": "float",
+      "unit": "kg",
+      "availability": "post_production",
+      "origin": "measured",
+      "required_for_training": true,
+      "required_for_prediction": false,
+      "nullable": false,
+      "missing_policy": "reject",
+      "aliases": [
+        "Reject Qty"
+      ],
+      "derived_from": [],
+      "constraints": {
+        "minimum": 0.0,
+        "minimum_inclusive": true,
+        "maximum_inclusive": true
+      },
+      "description": "Measured rejected/scrap knitted fabric mass per shift run."
+    }
+  ]
+}

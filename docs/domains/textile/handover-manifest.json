@@ -1,0 +1,41 @@
+{
+  "domain": "textile",
+  "version": "1.0.0",
+  "branch": "feature/textile/pipeline-integration",
+  "base_commit": "3e189dd",
+  "processes": [
+    {
+      "process_id": "weaving",
+      "task_id": "weaving_waste_regression",
+      "dataset_id": "weaving_beam_batches",
+      "target": "waste_length_yds",
+      "target_unit": "yd",
+      "split_strategy": "group",
+      "grouping_columns": ["order_id"],
+      "business_keys": ["batch_record_id"],
+      "target_confirmed_default": false
+    },
+    {
+      "process_id": "knitting",
+      "task_id": "knitting_waste_regression",
+      "dataset_id": "knitting_shift_runs",
+      "target": "waste_qty_kg",
+      "target_unit": "kg",
+      "split_strategy": "group_temporal",
+      "grouping_columns": ["order_lot_id"],
+      "time_column": "production_date",
+      "business_keys": ["run_id"],
+      "target_confirmed_default": false
+    }
+  ],
+  "cli_entrypoint": "python -m taqamind.domains.textile.cli",
+  "templates_dir": "contracts/domains/textile/templates",
+  "docs_dir": "docs/domains/textile",
+  "tests_dir": "tests/domains/textile",
+  "verification": {
+    "textile_tests_passed": 17,
+    "textile_coverage_pct": 81,
+    "ruff_passed": true,
+    "cli_e2e_passed": true
+  }
+}
