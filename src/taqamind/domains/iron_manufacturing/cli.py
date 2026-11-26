@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -18,12 +18,27 @@ from taqamind.core.contracts import (
     DatasetPurpose,
     TargetConfirmation,
 )
-from taqamind.core.interfaces.evaluation import AcceptancePolicy
+from taqamind.core.interfaces import (
+    AcceptancePolicy,
+    ModelScope,
+    ModelTransitionAction,
+    ModelTransitionRequest,
+    TrainingMode,
+)
+from taqamind.domains.iron_manufacturing.config import DOMAIN_ID
 from taqamind.domains.iron_manufacturing.domain import (
     PROCESS_DEFAULT_TASKS,
+    PROCESS_ENERGY_TASKS,
     make_synthetic_confirmation,
 )
+from taqamind.domains.iron_manufacturing.energy_contracts import (
+    get_iron_energy_dataset_contract,
+)
+from taqamind.domains.iron_manufacturing.energy_pipeline import IronEnergyPipelineService
 from taqamind.domains.iron_manufacturing.pipeline import IronManufacturingPipeline
+from taqamind.domains.iron_manufacturing.services.templates import (
+    generate_energy_process_templates,
+)
 
 
 def _parse_uuid(value: str) -> UUID:
@@ -65,6 +80,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--storage-root",
         default="artifacts/iron_manufacturing/store",
         help="Local storage root for artifacts and registries.",
+    )
+    parser.add_argument(
+        "--module",
+        default="waste",
+        choices=["waste", "energy"],
+        help="Target module: V1 waste prediction ('waste') or V2 electrical energy ('energy').",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -153,10 +174,219 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_energy_cli(args: argparse.Namespace) -> int:
+    """Execute V2 electrical energy CLI commands via IronEnergyPipelineService."""
+    import pandas as pd
+
+    if args.command == "template":
+        files = generate_energy_process_templates(
+            process_id=args.process,
+            output_dir=args.output_dir,
+            sample_rows=args.sample_rows,
+        )
+        print(json.dumps({k: str(v) for k, v in files.items()}, indent=2, ensure_ascii=False))
+        return 0
+
+    service = IronEnergyPipelineService(Path(args.storage_root))
+    confirmation = _resolve_confirmation(args)
+    contract = get_iron_energy_dataset_contract(args.process, confirmation=confirmation)
+    task_id = PROCESS_ENERGY_TASKS[args.process]
+
+    if args.command == "inspect":
+        payload = {
+            "status": "succeeded",
+            "domain": DOMAIN_ID,
+            "module": "energy_efficiency",
+            "process": args.process,
+            "task_id": task_id,
+            "dataset_id": contract.dataset_id,
+            "contract_version": contract.version,
+            "target": contract.target.feature.name,
+            "target_unit": contract.target.feature.unit,
+            "target_confirmed": contract.target.is_confirmed,
+            "predictors": list(contract.predictor_names),
+            "business_keys": list(contract.business_keys),
+            "grouping_columns": list(contract.grouping_columns),
+            "time_column": contract.time_column,
+            "csv": str(args.csv),
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    if args.command == "validate":
+        prepared = service.ingest_and_prepare(
+            factory_id=args.factory_id,
+            process_id=args.process,
+            csv_path=args.csv,
+            purpose=DatasetPurpose(args.purpose),
+            contract=contract,
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "ready",
+                    "revision_id": str(prepared.artifact.metadata.revision_id),
+                    "row_count": prepared.artifact.metadata.row_count,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if args.command in {"train", "retrain"}:
+        prepared = service.ingest_and_prepare(
+            factory_id=args.factory_id,
+            process_id=args.process,
+            csv_path=args.csv,
+            purpose=DatasetPurpose.TRAINING,
+            contract=contract,
+        )
+        policy = AcceptancePolicy(
+            minimum_improvement_pct=args.min_improvement_pct,
+            justification=f"CLI V2 energy policy (min improvement {args.min_improvement_pct}%).",
+            created_at=prepared.context.created_at - timedelta(seconds=1),
+        )
+        mode = TrainingMode.RETRAINING if args.command == "retrain" else TrainingMode.INITIAL
+        prev_id = None
+        if mode == TrainingMode.RETRAINING:
+            scope = ModelScope(
+                factory_id=args.factory_id,
+                domain=DOMAIN_ID,
+                process=args.process,
+                task_id=task_id,
+            )
+            active = service.core.model_registry.get_active(scope=scope)
+            prev_id = active.version.model_version_id if active is not None else None
+        outcome = service.train_and_evaluate(
+            factory_id=args.factory_id,
+            process_id=args.process,
+            prepared=prepared,
+            contract=contract,
+            policy=policy,
+            mode=mode,
+            previous_model_version_id=prev_id,
+            auto_activate=not getattr(args, "no_auto_activate", False),
+        )
+        print(
+            json.dumps(
+                {
+                    "decision": outcome.evaluation.decision.value,
+                    "activated": outcome.activated,
+                    "model_version_id": str(outcome.model_entry.version.model_version_id),
+                    "version_number": outcome.model_entry.version.version_number,
+                    "status": outcome.model_entry.status.value,
+                    "baseline_mae": outcome.evaluation.baseline_mae,
+                    "selected_mae": outcome.evaluation.selected_mae,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if args.command == "predict":
+        batch = service.predict(
+            factory_id=args.factory_id,
+            process_id=args.process,
+            csv_path=args.csv,
+            contract=contract,
+        )
+        if args.output_csv is not None:
+            args.output_csv.parent.mkdir(parents=True, exist_ok=True)
+            rows = [
+                {
+                    "status": p.status.value,
+                    "predicted_value": p.predicted_value,
+                    "derived_rate": p.derived_rate.value if p.derived_rate is not None else None,
+                    "rejection_reason": p.rejection_reason,
+                }
+                for p in batch.predictions
+            ]
+            pd.DataFrame(rows).to_csv(args.output_csv, index=False)
+        print(
+            json.dumps(
+                {
+                    "status": batch.status.value,
+                    "model_version_id": str(batch.model.model_version_id),
+                    "successful_count": batch.successful_count,
+                    "rejected_count": batch.rejected_count,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0 if batch.successful_count > 0 else 1
+
+    scope = ModelScope(
+        factory_id=args.factory_id,
+        domain=DOMAIN_ID,
+        process=args.process,
+        task_id=task_id,
+    )
+    if args.command == "model-info":
+        active = service.core.model_registry.get_active(scope=scope)
+        versions = service.core.model_registry.list_versions(scope=scope)
+        print(
+            json.dumps(
+                {
+                    "domain": DOMAIN_ID,
+                    "process": args.process,
+                    "task_id": task_id,
+                    "active_model_version_id": (
+                        str(active.version.model_version_id) if active is not None else None
+                    ),
+                    "versions": [
+                        {
+                            "model_version_id": str(v.version.model_version_id),
+                            "version_number": v.version.version_number,
+                            "status": v.status.value,
+                            "family": v.version.candidate.family,
+                        }
+                        for v in versions
+                    ],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if args.command == "rollback":
+        active = service.core.model_registry.get_active(scope=scope)
+        entry = service.core.model_registry.transition(
+            request=ModelTransitionRequest(
+                scope=scope,
+                action=ModelTransitionAction.ROLLBACK,
+                target_model_version_id=args.target_version_id,
+                expected_active_model_version_id=(
+                    active.version.model_version_id if active is not None else None
+                ),
+                requested_by=args.requested_by,
+                reason=args.reason,
+            )
+        )
+        print(
+            json.dumps(
+                {
+                    "status": entry.status.value,
+                    "active_model_version_id": str(entry.version.model_version_id),
+                    "version_number": entry.version.version_number,
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint returning process exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.module == "energy":
+        return _run_energy_cli(args)
     pipeline = IronManufacturingPipeline(storage_root=args.storage_root)
 
     if args.command == "inspect":
