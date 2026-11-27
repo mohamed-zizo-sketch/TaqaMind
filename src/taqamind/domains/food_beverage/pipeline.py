@@ -16,8 +16,7 @@ from taqamind.core.contracts import (
     DatasetPurpose,
     TargetConfirmation,
 )
-from taqamind.core.feature_engineering import DeterministicFeatureEngineer
-from taqamind.core.ingestion import CsvDataIngestion
+from taqamind.core.evaluation import ProtectedFinalEvaluator
 from taqamind.core.interfaces import (
     AcceptancePolicy,
     ApprovedMapping,
@@ -43,51 +42,25 @@ from taqamind.core.interfaces import (
     PredictionBatchResult,
     PredictionModelIdentity,
     ProfilingResult,
-    RecordUsage,
-    RecordUsageRole,
+    PromotionComparison,
+    RecordScope,
+    RegressionMetric,
     SplitConfiguration,
     SplitManifest,
-    SplitRole,
     SplitStrategy,
     TrainingConfiguration,
+    TrainingIntent,
     TrainingMode,
     TrainingReuseKey,
     TrainingRunResult,
     calculate_bytes_sha256,
     calculate_file_sha256,
-    calculate_split_fingerprint,
     calculate_training_configuration_fingerprint,
 )
-from taqamind.core.lineage import LocalRecordLineageRegistry
-from taqamind.core.preprocessing import ContractDataCleaner
-from taqamind.core.profiling import PandasDataProfiler
-from taqamind.core.registry import (
-    DomainRegistry,
-    LocalDatasetArtifactStorage,
-    LocalDatasetRegistry,
-    LocalModelArtifactStorage,
-)
-from taqamind.core.validation import ContractSemanticValidator
-from taqamind.domains.food_beverage.adapters import (
-    FoodBeverageControlledAutoMLTrainer,
-    FoodBeverageDatasetSplitter,
-    FoodBeverageLeakageValidator,
-    FoodBeveragePredictionEngine,
-    FoodBeverageProtectedFinalEvaluator,
-    FoodBeverageRowMembershipBuilder,
-    FoodBeverageTrainingReadinessChecker,
-    LocalActiveModelProvider,
-    LocalDevelopmentDataProvider,
-    LocalEvaluationRegistry,
-    LocalModelRegistry,
-    LocalProtectedTestDataProvider,
-    LocalRecordUsageRegistry,
-    LocalSplitRegistry,
-    LocalTrainingRegistry,
-    RowLineageSummary,
-    UnitAwareColumnMapperAdapter,
-    hash_contract,
-)
+from taqamind.core.lineage import MembershipBuildSummary
+from taqamind.core.pipeline import CorePlatformServices
+from taqamind.core.registry import DomainRegistry
+from taqamind.domains.food_beverage.adapters.unit_mapper import UnitAwareColumnMapperAdapter
 from taqamind.domains.food_beverage.config import DOMAIN_ID, FoodBeverageStorageConfig
 from taqamind.domains.food_beverage.domain import register_food_beverage
 
@@ -100,7 +73,7 @@ class PreparedDatasetBundle:
     contract: DatasetContract
     engineered_artifact: DatasetArtifact
     profiling: ProfilingResult
-    lineage: RowLineageSummary
+    lineage: MembershipBuildSummary
 
 
 @dataclass
@@ -169,42 +142,43 @@ class FoodBeveragePipeline:
         self.storage_config.ensure_dirs()
         self.domain_registry = domain_registry or DomainRegistry()
 
-        # Real Shared Core P1.1-P1.5 engines
-        self.dataset_storage = LocalDatasetArtifactStorage(self.storage_config.root_dir / "blobs")
-        self.model_storage = LocalModelArtifactStorage(self.storage_config.root_dir / "blobs")
-        self.dataset_registry = LocalDatasetRegistry(
-            self.storage_config.registries_dir, self.dataset_storage
-        )
-        self.ingestion = CsvDataIngestion(self.dataset_storage)
-        self.profiler = PandasDataProfiler(self.dataset_storage)
-        self.mapper = UnitAwareColumnMapperAdapter(self.dataset_storage)
-        self.validator = ContractSemanticValidator(self.dataset_storage)
-        self.cleaner = ContractDataCleaner(self.dataset_storage)
-        self.engineer = DeterministicFeatureEngineer(self.dataset_storage)
-        self.lineage_registry = LocalRecordLineageRegistry(
-            self.storage_config.registries_dir,
-            dataset_registry=self.dataset_registry,
-        )
+        # Initialize all Core P1.1–P1.8 services via CorePlatformServices
+        services = CorePlatformServices.create_local(self.storage_config.root_dir)
+        self._services = services  # kept for create_evaluator access
 
-        # Protocol-compatible adapters for Core gaps (AUD-008 + P1.6-P1.8)
-        self.membership_builder = FoodBeverageRowMembershipBuilder(self.lineage_registry)
-        self.readiness = FoodBeverageTrainingReadinessChecker(self.dataset_storage)
-        self.splitter = FoodBeverageDatasetSplitter(self.dataset_storage)
-        self.leakage = FoodBeverageLeakageValidator()
-        self.split_registry = LocalSplitRegistry(self.storage_config.registries_dir)
-        self.usage_registry = LocalRecordUsageRegistry(self.storage_config.registries_dir)
-        self.training_registry = LocalTrainingRegistry(self.storage_config.registries_dir)
-        self.evaluation_registry = LocalEvaluationRegistry(self.storage_config.registries_dir)
-        self.trainer = FoodBeverageControlledAutoMLTrainer(self.model_storage)
-        self.evaluator = FoodBeverageProtectedFinalEvaluator(self.model_storage)
-        self.model_registry = LocalModelRegistry(self.storage_config.registries_dir)
-        self.active_model_provider = LocalActiveModelProvider(self.model_registry)
-        self.predictor = FoodBeveragePredictionEngine(
-            dataset_storage=self.dataset_storage,
-            model_storage=self.model_storage,
-            active_provider=self.active_model_provider,
+        # P1.1–P1.5
+        self.dataset_storage = services.dataset_storage
+        self.model_storage = services.model_storage
+        self.dataset_registry = services.dataset_registry
+        self.ingestion = services.ingestion
+        self.profiler = services.profiler
+        # Use UnitAwareColumnMapperAdapter (AUD-001) wrapping the Core mapper
+        self.mapper = UnitAwareColumnMapperAdapter(
+            services.dataset_storage, core_mapper=services.mapper
         )
+        self.validator = services.validator
+        self.cleaner = services.cleaner
+        self.feature_engineer = services.feature_engineer
+        self.lineage_registry = services.lineage_registry
+
+        # P1.6–P1.8
+        self.membership_builder = services.membership_builder
+        self.readiness = services.readiness_checker
+        self.splitter = services.splitter
+        self.leakage = services.leakage_validator
+        self.split_registry = services.split_registry
+        self.usage_registry = services.usage_registry
+        self.training_registry = services.training_registry
+        self.evaluation_registry = services.evaluation_registry
+        self.trainer = services.trainer
+        self.model_registry = services.model_registry
+        self.active_model_provider = services.active_model_provider
+        self.predictor = services.prediction_engine
         self._reuse_cache: dict[str, TrainingWorkflowResult] = {}
+
+    def _get_evaluator(self, contract: DatasetContract) -> ProtectedFinalEvaluator:
+        """Create a contract-bound ProtectedFinalEvaluator via CorePlatformServices."""
+        return self._services.create_evaluator(contract)
 
     def get_contract(
         self,
@@ -363,7 +337,7 @@ class FoodBeveragePipeline:
             raise ValueError(f"Cleaning failed: {clean_res.report}")
         self.dataset_registry.register(factory_id=factory_id, artifact=clean_res.output_artifact)
 
-        eng_res = self.engineer.engineer(
+        eng_res = self.feature_engineer.engineer(
             context=context,
             artifact=clean_res.output_artifact,
             contract=contract,
@@ -378,11 +352,24 @@ class FoodBeveragePipeline:
         ) as stream:
             eng_df = pd.read_csv(stream, keep_default_na=True)
 
-        lineage = self.membership_builder.register_rows(
-            context=context,
+        bkey_cols = list(contract.business_keys)
+        if bkey_cols and eng_df.duplicated(subset=bkey_cols).any():
+            raise ValueError(
+                f"Duplicate business key detected in dataset for columns {bkey_cols}."
+            )
+
+        rec_scope = RecordScope(
+            factory_id=factory_id,
+            domain=DOMAIN_ID,
+            process=process_id,
+            dataset_id=contract.dataset_id,
+            identity_namespace="production_record",
+        )
+        lineage = self.membership_builder.build_and_register(
+            scope=rec_scope,
+            artifact=eng_res.output_artifact,
             contract=contract,
-            dataset_revision_id=eng_res.output_artifact.metadata.revision_id,
-            df=eng_df,
+            confirm_updates_by="food_beverage_pipeline",
         )
 
         return PreparedDatasetBundle(
@@ -442,7 +429,6 @@ class FoodBeveragePipeline:
             context=prepared.context,
             artifact=prepared.engineered_artifact,
             contract=prepared.contract,
-            lineage=prepared.lineage,
         )
         readiness.require_split_eligibility()
 
@@ -455,33 +441,30 @@ class FoodBeveragePipeline:
             justification="Temporal holdout for pre-production industrial batch forecasting.",
         )
 
-        exposed_test_ids = self.usage_registry.get_exposed_record_ids(
-            scope=prepared.lineage.scope,
-            role=RecordUsageRole.PROTECTED_TEST,
-        )
-        manifest, partitions = self.splitter.split(
-            context=prepared.context,
-            artifact=prepared.engineered_artifact,
-            contract=prepared.contract,
+        manifest = self.splitter.split(
+            readiness=readiness,
             configuration=s_cfg,
-            lineage=prepared.lineage,
-            exposed_test_record_ids=exposed_test_ids,
         )
-        self.split_registry.register(manifest)
+        self.split_registry.register_split(factory_id=factory_id, manifest=manifest)
 
-        _, auth = self.leakage.validate(
+        leakage = self.leakage.validate(
             readiness=readiness,
             manifest=manifest,
-            partitions=partitions,
-            exposed_test_record_ids=exposed_test_ids,
+        )
+        self.split_registry.register_leakage_validation(
+            factory_id=factory_id,
+            validation=leakage,
+        )
+        auth = self.split_registry.issue_training_authorization(
+            factory_id=factory_id,
+            validation_id=leakage.validation_id,
         )
 
-        contract_sha = hash_contract(prepared.contract)
-        impl_sha = calculate_bytes_sha256(self.IMPLEMENTATION_VERSION.encode("utf-8"))
-        split_sha = calculate_split_fingerprint(
-            manifest,
-            membership=prepared.lineage.manifest,
+        contract_sha = calculate_bytes_sha256(
+            prepared.contract.model_dump_json().encode("utf-8")
         )
+        impl_sha = calculate_bytes_sha256(self.IMPLEMENTATION_VERSION.encode("utf-8"))
+        split_sha = calculate_bytes_sha256(manifest.model_dump_json().encode("utf-8"))
         model_scope = ModelScope(
             factory_id=factory_id,
             domain=DOMAIN_ID,
@@ -490,14 +473,24 @@ class FoodBeveragePipeline:
         )
         prev_model_id: UUID | None = None
         if intent == TrainingMode.RETRAINING:
-            prev_active = self.model_registry.get_active_model(model_scope)
+            prev_active = self.model_registry.get_active(scope=model_scope)
             if prev_active is not None:
                 prev_model_id = prev_active.version.model_version_id
             else:
-                versions = self.model_registry.list_versions(model_scope)
+                versions = self.model_registry.list_versions(scope=model_scope)
                 if versions:
                     prev_model_id = versions[-1].version.model_version_id
-        _ = TrainingReuseKey(
+
+        training_intent = TrainingIntent(
+            context=prepared.context,
+            mode=intent,
+            requested_by="food_beverage_pipeline",
+            reason="Food & Beverage model training.",
+            previous_model_version_id=prev_model_id,
+        )
+        self.training_registry.register_intent(factory_id=factory_id, intent=training_intent)
+
+        reuse_key = TrainingReuseKey(
             factory_id=factory_id,
             domain=DOMAIN_ID,
             process=process_id,
@@ -515,48 +508,32 @@ class FoodBeveragePipeline:
             previous_model_version_id=prev_model_id,
         )
 
-        dev_provider = LocalDevelopmentDataProvider(partitions)
         training_run = self.trainer.train(
             authorization=auth,
-            configuration=cfg,
             contract=prepared.contract,
-            dev_provider=dev_provider,
+            configuration=cfg,
+            policy=policy,
         )
-        self.training_registry.register(training_run)
+        self.training_registry.register_result(
+            factory_id=factory_id,
+            key=reuse_key,
+            result=training_run,
+        )
 
         selection = FrozenModelSelection.from_training_run(
             training_run=training_run,
             policy=policy,
         )
 
-        rec_ver_map = {
-            m.record_id: m.record_version_id
-            for m in prepared.lineage.manifest.memberships
-        }
-        test_usages = [
-            RecordUsage(
-                scope=prepared.lineage.scope,
-                record_id=rid,
-                record_version_id=rec_ver_map[rid],
-                execution_id=prepared.context.execution_id,
-                split_id=manifest.split_id,
-                role=RecordUsageRole.PROTECTED_TEST,
-            )
-            for rid in manifest.test.record_ids
-        ]
-        self.usage_registry.record(test_usages)
-
-        test_provider = LocalProtectedTestDataProvider(partitions[SplitRole.TEST])
-        evaluation = self.evaluator.evaluate(
+        evaluation = self._get_evaluator(prepared.contract).evaluate(
             selection=selection,
             manifest=manifest,
-            contract=prepared.contract,
-            test_provider=test_provider,
         )
-        self.evaluation_registry.register(evaluation)
 
         selected_res = next(
-            r for r in training_run.results if r.candidate_id == selection.selected_candidate_id
+            r
+            for r in training_run.successful_results
+            if r.candidate_id == selection.selected_candidate_id
         )
         selected_cfg = next(
             c for c in cfg.candidates if c.candidate_id == selection.selected_candidate_id
@@ -582,7 +559,11 @@ class FoodBeveragePipeline:
             target_version=prepared.contract.target.version,
         )
 
-        active_before = self.model_registry.get_active_model(scope)
+        active_before = self.model_registry.get_active(scope=scope)
+        existing_versions = self.model_registry.list_versions(scope=scope)
+        next_version_number = (
+            max((v.version.version_number for v in existing_versions), default=0) + 1
+        )
         predictor_names = tuple(
             f.name
             for f in prepared.contract.features
@@ -590,7 +571,7 @@ class FoodBeveragePipeline:
         )
         version = ModelVersion(
             identity=identity,
-            version_number=self.model_registry.next_version_number(scope),
+            version_number=next_version_number,
             training_run_id=training_run.training_run_id,
             selection_id=selection.selection_id,
             training_dataset_revision_id=prepared.engineered_artifact.metadata.revision_id,
@@ -609,10 +590,11 @@ class FoodBeveragePipeline:
             ),
         )
 
-        entry = self.model_registry.register_evaluated(
-            version=version,
-            evaluation_id=evaluation.evaluation_id,
-            decision=evaluation.decision,
+        self.model_registry.register_candidate(scope=scope, version=version)
+        entry = self.model_registry.apply_evaluation(
+            scope=scope,
+            model_version_id=version.model_version_id,
+            evaluation=evaluation,
         )
         if (
             evaluation.decision == EvaluationDecision.ACCEPTED
@@ -620,7 +602,7 @@ class FoodBeveragePipeline:
             and (intent == TrainingMode.INITIAL or active_before is None)
         ):
             entry = self.model_registry.transition(
-                ModelTransitionRequest(
+                request=ModelTransitionRequest(
                     scope=scope,
                     target_model_version_id=model_ver_id,
                     expected_active_model_version_id=None,
@@ -642,6 +624,52 @@ class FoodBeveragePipeline:
         self._reuse_cache[reuse_id] = res
         return res
 
+    def promote_model(
+        self,
+        *,
+        factory_id: UUID,
+        process_id: str,
+        challenger_result: TrainingWorkflowResult,
+        minimum_improvement_pct: float = 1.0,
+        requested_by: str = "food_beverage_pipeline",
+        reason: str = "Challenger outperformed active model on protected test data.",
+    ) -> ModelRegistryEntry:
+        """Promote a validated challenger model while enforcing PromotionComparison."""
+        if challenger_result.registry_entry is None:
+            raise ValueError("Challenger training result has no registry entry.")
+        scope = challenger_result.registry_entry.version.scope
+        active = self.model_registry.get_active(scope=scope)
+        if active is None:
+            raise ValueError(
+                f"No ACTIVE model exists for scope={scope}; use FIRST_ACTIVATION instead."
+            )
+        comparison = PromotionComparison(
+            scope=scope,
+            active_model_version_id=active.version.model_version_id,
+            challenger_model_version_id=challenger_result.registry_entry.version.model_version_id,
+            evaluation_dataset_revision_id=(
+                challenger_result.prepared.engineered_artifact.metadata.revision_id
+            ),
+            evaluation_record_ids=challenger_result.split_manifest.test.record_ids,
+            metric=RegressionMetric.MAE,
+            active_mae=challenger_result.evaluation.baseline_mae,
+            challenger_mae=challenger_result.evaluation.selected_mae,
+            minimum_improvement_pct=minimum_improvement_pct,
+        )
+        return self.model_registry.transition(
+            request=ModelTransitionRequest(
+                scope=scope,
+                action=ModelTransitionAction.PROMOTION,
+                target_model_version_id=(
+                    challenger_result.registry_entry.version.model_version_id
+                ),
+                expected_active_model_version_id=active.version.model_version_id,
+                requested_by=requested_by,
+                reason=reason,
+                comparison=comparison,
+            )
+        )
+
     def predict(
         self,
         *,
@@ -662,7 +690,7 @@ class FoodBeveragePipeline:
             process=process_id,
             task_id=task_id,
         )
-        active = self.model_registry.get_active_model(scope)
+        active = self.model_registry.get_active(scope=scope)
         if active is None:
             raise ValueError(
                 f"No ACTIVE model exists for factory={factory_id}, process={process_id}."
@@ -688,7 +716,7 @@ class FoodBeveragePipeline:
             context=prepared.context,
             artifact=prepared.engineered_artifact,
             contract=prepared.contract,
-            lineage=prepared.lineage,
+            model=active.version.identity,
         )
 
     def get_model_info(self, *, factory_id: UUID, process_id: str) -> dict[str, Any]:
@@ -704,8 +732,8 @@ class FoodBeveragePipeline:
             process=process_id,
             task_id=task_id,
         )
-        active = self.model_registry.get_active_model(scope)
-        all_entries = self.model_registry.list_entries(scope)
+        active = self.model_registry.get_active(scope=scope)
+        all_entries = self.model_registry.list_versions(scope=scope)
         return {
             "factory_id": str(factory_id),
             "process_id": process_id,

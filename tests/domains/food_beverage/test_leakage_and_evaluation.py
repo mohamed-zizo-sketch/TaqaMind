@@ -81,7 +81,7 @@ def test_rejected_model_cannot_be_activated(
 
     with pytest.raises(ValueError):
         tmp_pipeline.model_registry.transition(
-            ModelTransitionRequest(
+            request=ModelTransitionRequest(
                 scope=res.registry_entry.version.scope,
                 target_model_version_id=res.registry_entry.version.model_version_id,
                 action=ModelTransitionAction.FIRST_ACTIVATION,
@@ -107,11 +107,13 @@ def test_historical_exposure_excluded_from_new_test_partition(
         process_id="bakery",
         target_confirmation=synthetic_confirmation,
     )
-    exposed_ids = tmp_pipeline.usage_registry.get_exposed_record_ids(
-        scope=res1.prepared.lineage.scope,
-        role=RecordUsageRole.PROTECTED_TEST,
+    test_rids = tuple(res1.split_manifest.test.record_ids)
+    history = tmp_pipeline.usage_registry.get_history(
+        scope=res1.prepared.lineage.manifest.scope,
+        record_ids=test_rids,
     )
-    assert exposed_ids == set(res1.split_manifest.test.record_ids)
+    exposed_ids = {u.record_id for u in history if u.role == RecordUsageRole.PROTECTED_TEST}
+    assert exposed_ids == set(test_rids)
 
     # Add 20 new records and retrain -> exposed records must NOT be in new test partition
     df_new = make_synthetic_bakery_dataframe(
