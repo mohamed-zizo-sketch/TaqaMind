@@ -14,6 +14,7 @@ from taqamind.core.automl.data_access import (
     read_partition_dataframe,
 )
 from taqamind.core.contracts.dataset import DatasetContract
+from taqamind.core.ingestion.resource_policy import CsvResourcePolicy, resolve_internal_csv_policy
 from taqamind.core.interfaces.data_access import ProtectedTestDataProvider
 from taqamind.core.interfaces.evaluation import (
     FinalEvaluationResult,
@@ -43,12 +44,14 @@ class ProtectedFinalEvaluator(FinalModelEvaluator):
         test_data_provider: ProtectedTestDataProvider,
         model_storage: ModelArtifactStorage,
         type_converter: ContractTypeConverter | None = None,
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._contract = contract
         self._evaluation_registry = evaluation_registry
         self._test_data_provider = test_data_provider
         self._model_storage = model_storage
         self._converter = type_converter or ContractTypeConverter()
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
 
     def _score_candidate(
         self,
@@ -125,7 +128,7 @@ class ProtectedFinalEvaluator(FinalModelEvaluator):
         )
 
         with self._test_data_provider.open_test(access=access) as test_stream:
-            test_raw = read_partition_dataframe(test_stream)
+            test_raw = read_partition_dataframe(test_stream, resource_policy=self._resource_policy)
 
         test_df = convert_dataframe_by_contract(
             test_raw,

@@ -7,6 +7,11 @@ from uuid import UUID
 import numpy as np
 import pandas as pd
 
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvReader
 from taqamind.core.interfaces.dataset_registry import RecordLineageRegistry
 from taqamind.core.interfaces.lineage import RecordScope
@@ -32,10 +37,12 @@ class CoreDatasetSplitter(DatasetSplitter):
         *,
         delimiter: str = ",",
         identity_namespace: str = "production_record",
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._storage = storage
         self._lineage = lineage_registry
-        self._reader = SafeCsvReader(delimiter=delimiter)
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._reader = SafeCsvReader(delimiter=delimiter, resource_policy=self._resource_policy)
         self._identity_namespace = identity_namespace
 
     def split(
@@ -66,11 +73,13 @@ class CoreDatasetSplitter(DatasetSplitter):
                 "Dataset membership contains repeated record_ids; resolve duplicates before split."
             )
 
-        with self._storage.open_verified(
+        df = read_verified_csv(
+            storage=self._storage,
             factory_id=context.factory_id,
             reference=artifact.reference,
-        ) as stream:
-            df = self._reader.read(stream.read())
+            reader=self._reader,
+            policy=self._resource_policy,
+        )
 
         row_record_ids = [item.record_id for item in membership.memberships]
 
@@ -118,9 +127,7 @@ class CoreDatasetSplitter(DatasetSplitter):
         configuration: SplitConfiguration,
     ) -> tuple[list[UUID], list[UUID], list[UUID]]:
         if len(blocks) < 3:
-            raise ValueError(
-                "At least 3 distinct groups/timestamps are required for 3-way split."
-            )
+            raise ValueError("At least 3 distinct groups/timestamps are required for 3-way split.")
         target_train = max(1, round(total_rows * configuration.train_ratio))
         target_val = max(1, round(total_rows * configuration.validation_ratio))
 

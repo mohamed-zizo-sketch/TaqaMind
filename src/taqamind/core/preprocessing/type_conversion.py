@@ -33,7 +33,7 @@ class TypeConversionResult:
 class ContractTypeConverter:
     """Convert lexical values without treating invalid tokens as genuine missing data."""
 
-    VERSION = "1.0.0"
+    VERSION = "1.1.0"
 
     def convert(self, series: pd.Series, *, data_type: DataType) -> TypeConversionResult:
         """Return typed values; callers must block on invalid_positions before use."""
@@ -51,7 +51,12 @@ class ContractTypeConverter:
         values: list = []
         invalid: list[int] = []
         for position, value in enumerate(series):
-            if pd.isna(value):
+            if isinstance(value, (list, tuple, dict, set, np.ndarray, pd.Series, pd.DataFrame)):
+                invalid.append(position)
+                values.append(pd.NA)
+                continue
+            na_flag = pd.isna(value)
+            if isinstance(na_flag, (bool, np.bool_)) and na_flag:
                 values.append(pd.NA)
                 continue
             try:
@@ -105,6 +110,9 @@ class ContractTypeConverter:
                 return ts.date().isoformat()
 
         if data_type == DataType.DATETIME:
+            if isinstance(value, pd.Timestamp):
+                ts = value.tz_localize(UTC) if value.tzinfo is None else value.tz_convert(UTC)
+                return ts.isoformat().replace("+00:00", "Z")
             if isinstance(value, datetime):
                 dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
                 return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
@@ -114,8 +122,7 @@ class ContractTypeConverter:
             ts = pd.to_datetime(token, format="mixed", utc=True, errors="raise")
             if pd.isna(ts):
                 raise ValueError("Invalid datetime literal.")
-            py_dt = ts.to_pydatetime()
-            return py_dt.isoformat().replace("+00:00", "Z")
+            return ts.isoformat().replace("+00:00", "Z")
 
         if isinstance(value, (bool, np.bool_)):
             raise ValueError("Boolean is not a numeric measurement.")

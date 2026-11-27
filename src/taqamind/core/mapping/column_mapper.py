@@ -1,6 +1,5 @@
 """Deterministic canonical column mapping engine."""
 
-import json
 from datetime import UTC, datetime
 from io import BytesIO
 
@@ -15,6 +14,11 @@ from taqamind.core.contracts.enums import (
     ValidationSeverity,
 )
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.artifact_csv import csv_configuration_sha256, read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
@@ -58,12 +62,14 @@ class DeterministicColumnMapper(ColumnMapper):
         self,
         storage: DatasetArtifactStorage,
         *,
-        implementation_version: str = "0.3.0",
+        implementation_version: str = "0.4.0",
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._storage = storage
         self._implementation_version = implementation_version
         self._unit_converter = UnitConverter()
-        self._reader = SafeCsvReader()
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._reader = SafeCsvReader(resource_policy=self._resource_policy)
 
     def propose_mapping(
         self,
@@ -83,16 +89,11 @@ class DeterministicColumnMapper(ColumnMapper):
         candidate_features = [
             feature
             for feature in contract.all_columns
-            if not (
-                context.purpose == DatasetPurpose.PREDICTION
-                and feature.name == target_name
-            )
+            if not (context.purpose == DatasetPurpose.PREDICTION and feature.name == target_name)
         ]
 
         exact_lookup = {feature.name: feature for feature in candidate_features}
-        casefold_lookup = {
-            feature.name.casefold(): feature for feature in candidate_features
-        }
+        casefold_lookup = {feature.name.casefold(): feature for feature in candidate_features}
         alias_lookup = {
             alias.strip().casefold(): feature
             for feature in candidate_features
@@ -117,8 +118,7 @@ class DeterministicColumnMapper(ColumnMapper):
                 canonical_unit=feature.unit,
                 requires_confirmation=feature.unit is not None,
                 reason=(
-                    "Exact canonical column name match. "
-                    "Source unit requires explicit confirmation."
+                    "Exact canonical column name match. Source unit requires explicit confirmation."
                     if feature.unit is not None
                     else "Exact canonical column name match."
                 ),
@@ -168,9 +168,7 @@ class DeterministicColumnMapper(ColumnMapper):
             if source_col in matched_by_source
         )
         unmapped = tuple(
-            source_col
-            for source_col in source_columns
-            if source_col not in matched_by_source
+            source_col for source_col in source_columns if source_col not in matched_by_source
         )
 
         return MappingProposal(
@@ -203,14 +201,11 @@ class DeterministicColumnMapper(ColumnMapper):
                 continue
 
             if source_unit is None or canonical_unit is None:
-                raise UnitConversionError(
-                    f"Incomplete unit definition for '{feature.name}'."
-                )
+                raise UnitConversionError(f"Incomplete unit definition for '{feature.name}'.")
 
             if entry.source_column not in confirmed_columns:
                 raise UnitConversionError(
-                    f"Source unit for '{entry.source_column}' "
-                    "has not been explicitly confirmed."
+                    f"Source unit for '{entry.source_column}' has not been explicitly confirmed."
                 )
 
             if source_unit == canonical_unit:
@@ -222,7 +217,6 @@ class DeterministicColumnMapper(ColumnMapper):
                     f"Unit conversion requires a numeric feature: '{feature.name}'."
                 )
 
-
             convert = (
                 self._unit_converter.convert_integer_series
                 if feature.data_type == DataType.INTEGER
@@ -233,7 +227,6 @@ class DeterministicColumnMapper(ColumnMapper):
                 source_unit=source_unit,
                 canonical_unit=canonical_unit,
             )
-
 
             issues.append(
                 ValidationIssue(
@@ -284,11 +277,13 @@ class DeterministicColumnMapper(ColumnMapper):
             )
 
         try:
-            with self._storage.open_verified(
+            df = read_verified_csv(
+                storage=self._storage,
                 factory_id=context.factory_id,
                 reference=artifact.reference,
-            ) as stream:
-                df = self._reader.read(stream.read())
+                reader=self._reader,
+                policy=self._resource_policy,
+            )
 
             expected_columns = tuple(col.name for col in artifact.metadata.columns)
             if tuple(df.columns) != expected_columns or len(df) != artifact.metadata.row_count:
@@ -328,9 +323,7 @@ class DeterministicColumnMapper(ColumnMapper):
                 ),
             )
 
-        rename_map = {
-            entry.source_column: entry.canonical_column for entry in entries
-        }
+        rename_map = {entry.source_column: entry.canonical_column for entry in entries}
         canonical_order = [
             feature.name
             for feature in contract.all_columns
@@ -352,13 +345,10 @@ class DeterministicColumnMapper(ColumnMapper):
             stream=BytesIO(mapped_bytes),
         )
 
-        config_payload = json.dumps(
-            mapping.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-        config_sha256 = calculate_bytes_sha256(config_payload)
+        config_sha256 = csv_configuration_sha256(
+            self._resource_policy,
+            extra=mapping.model_dump(mode="json"),
+        )
 
         columns = tuple(
             DatasetColumnSchema(
@@ -375,10 +365,10 @@ class DeterministicColumnMapper(ColumnMapper):
             operation="apply_mapping",
             implementation_version=self._implementation_version,
             configuration_sha256=config_sha256,
-       description=(
-            "Applied approved canonical column mapping "
-            "with lexical value preservation."
-        ),        )
+            description=(
+                "Applied approved canonical column mapping with lexical value preservation."
+            ),
+        )
         output_artifact = DatasetArtifact(
             metadata=mapped_metadata,
             reference=mapped_ref,
@@ -392,9 +382,7 @@ class DeterministicColumnMapper(ColumnMapper):
                     stage=PipelineStage.COLUMN_MAPPING,
                     severity=ValidationSeverity.INFO,
                     impact=IssueImpact.NONE,
-                    message=(
-                        "Unmapped source columns were excluded from the mapped revision."
-                    ),
+                    message=("Unmapped source columns were excluded from the mapped revision."),
                     columns=mapping.proposal.unmapped_columns,
                 )
             )

@@ -9,6 +9,11 @@ import pandas as pd
 
 from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import DataType
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvReader
 from taqamind.core.interfaces.dataset import DatasetArtifact, DatasetState
 from taqamind.core.interfaces.dataset_registry import (
@@ -65,10 +70,12 @@ class RecordMembershipBuilder:
         *,
         delimiter: str = ",",
         identity_namespace: str = "production_record",
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._storage = storage
         self._lineage = lineage_registry
-        self._reader = SafeCsvReader(delimiter=delimiter)
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._reader = SafeCsvReader(delimiter=delimiter, resource_policy=self._resource_policy)
         self._converter = ContractTypeConverter()
         self._identity_namespace = identity_namespace
 
@@ -89,11 +96,13 @@ class RecordMembershipBuilder:
         if not contract.business_keys:
             raise ValueError("Record membership requires DatasetContract.business_keys.")
 
-        with self._storage.open_verified(
+        df = read_verified_csv(
+            storage=self._storage,
             factory_id=scope.factory_id,
             reference=artifact.reference,
-        ) as stream:
-            df = self._reader.read(stream.read())
+            reader=self._reader,
+            policy=self._resource_policy,
+        )
 
         col_map = contract.column_map
         content_cols = [col for col in df.columns if col in col_map]
@@ -124,9 +133,7 @@ class RecordMembershipBuilder:
             key_fields = tuple(
                 FingerprintField(
                     name=key_name,
-                    value=_normalize_fingerprint_value(
-                        row[key_name], col_map[key_name].data_type
-                    ),
+                    value=_normalize_fingerprint_value(row[key_name], col_map[key_name].data_type),
                 )
                 for key_name in contract.business_keys
             )
@@ -140,15 +147,11 @@ class RecordMembershipBuilder:
             content_fields = tuple(
                 FingerprintField(
                     name=col_name,
-                    value=_normalize_fingerprint_value(
-                        row[col_name], col_map[col_name].data_type
-                    ),
+                    value=_normalize_fingerprint_value(row[col_name], col_map[col_name].data_type),
                 )
                 for col_name in content_cols
             )
-            content_sha = calculate_record_fingerprint(
-                content_fields, namespace="record_content"
-            )
+            content_sha = calculate_record_fingerprint(content_fields, namespace="record_content")
 
             match = self._lineage.match(
                 scope=scope,

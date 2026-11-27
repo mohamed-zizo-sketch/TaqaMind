@@ -8,6 +8,11 @@ import pandas as pd
 from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import DataType, FeatureRole, PipelineStage
 from taqamind.core.contracts.validation import ValidationReport
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.context import PipelineContext
 from taqamind.core.interfaces.dataset import DatasetArtifact, DatasetState
@@ -32,9 +37,15 @@ from taqamind.core.interfaces.storage import DatasetArtifactStorage
 class PandasDataProfiler(DataProfiler):
     """Profile an INGESTED CSV artifact without mutating it."""
 
-    def __init__(self, storage: DatasetArtifactStorage) -> None:
+    def __init__(
+        self,
+        storage: DatasetArtifactStorage,
+        *,
+        resource_policy: CsvResourcePolicy | None = None,
+    ) -> None:
         self._storage = storage
-        self._reader = SafeCsvReader()
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._reader = SafeCsvReader(resource_policy=self._resource_policy)
 
     def profile(
         self,
@@ -52,18 +63,18 @@ class PandasDataProfiler(DataProfiler):
         )
 
         try:
-            with self._storage.open_verified(
+            df = read_verified_csv(
+                storage=self._storage,
                 factory_id=context.factory_id,
                 reference=artifact.reference,
-            ) as stream:
-                df = self._reader.read(stream.read())
+                reader=self._reader,
+                policy=self._resource_policy,
+            )
         except SafeCsvError as exc:
             return self._failed_result(context, artifact, started_at, exc.code, str(exc))
 
         observed_schema = tuple((str(col), str(df[col].dtype)) for col in df.columns)
-        expected_schema = tuple(
-            (col.name, col.physical_dtype) for col in artifact.metadata.columns
-        )
+        expected_schema = tuple((col.name, col.physical_dtype) for col in artifact.metadata.columns)
         if observed_schema != expected_schema or len(df) != artifact.metadata.row_count:
             return self._failed_result(
                 context,

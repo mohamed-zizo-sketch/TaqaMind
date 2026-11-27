@@ -21,6 +21,7 @@ from taqamind.core.automl.data_access import (
 )
 from taqamind.core.contracts.dataset import DatasetContract
 from taqamind.core.contracts.enums import DataType
+from taqamind.core.ingestion.resource_policy import CsvResourcePolicy, resolve_internal_csv_policy
 from taqamind.core.interfaces.artifacts import calculate_bytes_sha256
 from taqamind.core.interfaces.candidates import (
     CandidateModelReference,
@@ -204,10 +205,12 @@ class ControlledAutoMLTrainer(ModelTrainer):
         development_data_provider: DevelopmentDataProvider,
         model_storage: ModelArtifactStorage,
         type_converter: ContractTypeConverter | None = None,
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._data_provider = development_data_provider
         self._model_storage = model_storage
         self._converter = type_converter or ContractTypeConverter()
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
 
     def _build_estimator(
         self,
@@ -281,9 +284,11 @@ class ControlledAutoMLTrainer(ModelTrainer):
         access = self._data_provider.prepare(authorization=authorization, contract=contract)
 
         with self._data_provider.open_train(access=access) as train_stream:
-            train_raw = read_partition_dataframe(train_stream)
+            train_raw = read_partition_dataframe(
+                train_stream, resource_policy=self._resource_policy
+            )
         with self._data_provider.open_validation(access=access) as val_stream:
-            val_raw = read_partition_dataframe(val_stream)
+            val_raw = read_partition_dataframe(val_stream, resource_policy=self._resource_policy)
 
         train_df = convert_dataframe_by_contract(
             train_raw,

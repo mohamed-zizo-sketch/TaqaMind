@@ -26,6 +26,9 @@ from taqamind.core.contracts import (
     TaskType,
 )
 from taqamind.core.feature_engineering import (
+    BinaryExpr,
+    BinaryOperator,
+    ColumnRef,
     DerivedFeatureSpec,
     DeterministicFeatureEngineer,
 )
@@ -185,11 +188,15 @@ def map_csv(
         ),
         reference=ref,
     )
-    ingested = CsvDataIngestion(storage).ingest(
-        context=context,
-        artifact=raw,
-        contract=contract,
-    ).output_artifact
+    ingested = (
+        CsvDataIngestion(storage)
+        .ingest(
+            context=context,
+            artifact=raw,
+            contract=contract,
+        )
+        .output_artifact
+    )
     assert ingested is not None
 
     mapper = DeterministicColumnMapper(storage)
@@ -197,15 +204,10 @@ def map_csv(
 
     # This synthetic fixture uses the canonical units.
     confirmed_entries = tuple(
-        entry.model_copy(
-            update={"source_unit": entry.canonical_unit}
-        )
-        for entry in proposal.entries
+        entry.model_copy(update={"source_unit": entry.canonical_unit}) for entry in proposal.entries
     )
 
-    confirmed_proposal = proposal.model_copy(
-        update={"entries": confirmed_entries}
-    )
+    confirmed_proposal = proposal.model_copy(update={"entries": confirmed_entries})
 
     approved = ApprovedMapping(
         proposal=confirmed_proposal,
@@ -213,8 +215,7 @@ def map_csv(
         confirmed_source_columns=tuple(
             entry.source_column
             for entry in confirmed_entries
-            if entry.requires_confirmation
-            or entry.canonical_unit is not None
+            if entry.requires_confirmation or entry.canonical_unit is not None
         ),
     )
 
@@ -264,7 +265,11 @@ def test_clean_and_engineer_deterministic_flow(tmp_path: Path):
 
     spec = DerivedFeatureSpec(
         feature_name="speed_per_kg",
-        compute=lambda frame: frame["machine_speed"] / frame["planned_qty"],
+        transform=BinaryExpr(
+            op=BinaryOperator.DIV,
+            left=ColumnRef(name="machine_speed"),
+            right=ColumnRef(name="planned_qty"),
+        ),
     )
     engineer = DeterministicFeatureEngineer(storage, derived_specs=(spec,))
     eng_res = engineer.engineer(context=context, artifact=cleaned, contract=contract)
@@ -364,9 +369,11 @@ def test_end_to_end_csv_integrity_across_all_processing_stages(tmp_path: Path) -
     )
     raw_art = DatasetArtifact(metadata=raw_meta, reference=raw_ref)
 
-    ingested = CsvDataIngestion(storage).ingest(
-        context=context, artifact=raw_art, contract=int_contract
-    ).output_artifact
+    ingested = (
+        CsvDataIngestion(storage)
+        .ingest(context=context, artifact=raw_art, contract=int_contract)
+        .output_artifact
+    )
     assert ingested is not None
 
     mapper = DeterministicColumnMapper(storage)
@@ -400,7 +407,11 @@ def test_end_to_end_csv_integrity_across_all_processing_stages(tmp_path: Path) -
 
     spec = DerivedFeatureSpec(
         feature_name="speed_per_kg",
-        compute=lambda frame: frame["machine_speed"] / frame["planned_qty"],
+        transform=BinaryExpr(
+            op=BinaryOperator.DIV,
+            left=ColumnRef(name="machine_speed"),
+            right=ColumnRef(name="planned_qty"),
+        ),
     )
     eng_res = DeterministicFeatureEngineer(storage, derived_specs=(spec,)).engineer(
         context=context, artifact=clean_res.output_artifact, contract=int_contract
@@ -421,11 +432,7 @@ def test_end_to_end_csv_integrity_across_all_processing_stages(tmp_path: Path) -
 def test_cleaner_detects_whitespace_normalization_key_collision(tmp_path: Path) -> None:
     storage = LocalDatasetArtifactStorage(tmp_path)
     contract, context = make_contract_and_context()
-    csv_bytes = (
-        b"batch_id,planned_qty,waste_qty\n"
-        b"\" 001 \",100.0,1.0\n"
-        b"\"001\",200.0,2.0\n"
-    )
+    csv_bytes = b'batch_id,planned_qty,waste_qty\n" 001 ",100.0,1.0\n"001",200.0,2.0\n'
     raw_ref = ArtifactReference(
         factory_id=context.factory_id,
         format=ArtifactFormat.CSV,
@@ -447,11 +454,15 @@ def test_cleaner_detects_whitespace_normalization_key_collision(tmp_path: Path) 
         source_file_sha256=raw_ref.content_sha256,
         state=DatasetState.RAW,
     )
-    ingested = CsvDataIngestion(storage).ingest(
-        context=context,
-        artifact=DatasetArtifact(metadata=raw_meta, reference=raw_ref),
-        contract=contract,
-    ).output_artifact
+    ingested = (
+        CsvDataIngestion(storage)
+        .ingest(
+            context=context,
+            artifact=DatasetArtifact(metadata=raw_meta, reference=raw_ref),
+            contract=contract,
+        )
+        .output_artifact
+    )
     assert ingested is not None
 
     mapper = DeterministicColumnMapper(storage)
@@ -479,9 +490,7 @@ def test_cleaner_detects_whitespace_normalization_key_collision(tmp_path: Path) 
     )
     assert clean_res.status == ExecutionStatus.BLOCKED
     assert clean_res.report is not None
-    assert any(
-        i.code == "WHITESPACE_NORMALIZATION_KEY_COLLISION" for i in clean_res.report.issues
-    )
+    assert any(i.code == "WHITESPACE_NORMALIZATION_KEY_COLLISION" for i in clean_res.report.issues)
 
 
 def test_feature_engineer_blocks_target_and_undeclared_column_access(tmp_path: Path) -> None:
@@ -510,11 +519,15 @@ def test_feature_engineer_blocks_target_and_undeclared_column_access(tmp_path: P
         source_file_sha256=raw_ref.content_sha256,
         state=DatasetState.RAW,
     )
-    ingested = CsvDataIngestion(storage).ingest(
-        context=context,
-        artifact=DatasetArtifact(metadata=raw_meta, reference=raw_ref),
-        contract=contract,
-    ).output_artifact
+    ingested = (
+        CsvDataIngestion(storage)
+        .ingest(
+            context=context,
+            artifact=DatasetArtifact(metadata=raw_meta, reference=raw_ref),
+            contract=contract,
+        )
+        .output_artifact
+    )
     assert ingested is not None
 
     mapper = DeterministicColumnMapper(storage)
@@ -536,9 +549,11 @@ def test_feature_engineer_blocks_target_and_undeclared_column_access(tmp_path: P
         ),
     ).output_artifact
     assert mapped is not None
-    cleaned = ContractDataCleaner(storage).clean(
-        context=context, artifact=mapped, contract=contract
-    ).output_artifact
+    cleaned = (
+        ContractDataCleaner(storage)
+        .clean(context=context, artifact=mapped, contract=contract)
+        .output_artifact
+    )
     assert cleaned is not None
 
     seen_columns: list[list[str]] = []
@@ -547,20 +562,38 @@ def test_feature_engineer_blocks_target_and_undeclared_column_access(tmp_path: P
         seen_columns.append(list(frame.columns))
         return frame["waste_qty"] * 2.0
 
-    leaky_spec = DerivedFeatureSpec(feature_name="speed_per_kg", compute=_leaky_compute)
-    with pytest.raises(KeyError, match="waste_qty"):
-        DeterministicFeatureEngineer(storage, derived_specs=(leaky_spec,)).engineer(
-            context=context, artifact=cleaned, contract=contract
-        )
+    leaky_spec = DerivedFeatureSpec(
+        feature_name="speed_per_kg",
+        compute=_leaky_compute,
+    )
+
+    result = DeterministicFeatureEngineer(
+        storage,
+        derived_specs=(leaky_spec,),
+        allow_unverified_callbacks=True,
+    ).engineer(
+        context=context,
+        artifact=cleaned,
+        contract=contract,
+    )
+
+    assert result.status == ExecutionStatus.BLOCKED
+    assert result.output_artifact is None
+    assert result.report is not None
+
+    assert any(issue.code == "DERIVED_FEATURE_COMPUTATION_FAILED" for issue in result.report.issues)
+
     assert seen_columns == [["machine_speed", "planned_qty"]]
 
     bad_type_spec = DerivedFeatureSpec(
         feature_name="speed_per_kg",
         compute=lambda frame: [1.0] * len(frame),  # type: ignore[return-value, arg-type]
     )
-    res = DeterministicFeatureEngineer(storage, derived_specs=(bad_type_spec,)).engineer(
-        context=context, artifact=cleaned, contract=contract
-    )
+    res = DeterministicFeatureEngineer(
+        storage,
+        derived_specs=(bad_type_spec,),
+        allow_unverified_callbacks=True,
+    ).engineer(context=context, artifact=cleaned, contract=contract)
     assert res.status == ExecutionStatus.BLOCKED
     assert res.report is not None
     assert any(i.code == "DERIVED_FEATURE_INVALID_TYPE" for i in res.report.issues)

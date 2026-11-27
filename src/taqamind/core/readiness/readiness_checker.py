@@ -14,6 +14,11 @@ from taqamind.core.contracts.enums import (
     ValidationSeverity,
 )
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.context import PipelineContext
 from taqamind.core.interfaces.dataset import DatasetArtifact, DatasetState
@@ -47,12 +52,14 @@ class CoreTrainingReadinessChecker(TrainingReadinessChecker):
         min_positive_targets: int = 2,
         delimiter: str = ",",
         identity_namespace: str = "production_record",
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._storage = storage
         self._lineage = lineage_registry
         self._min_rows = min_rows
         self._min_positive_targets = min_positive_targets
-        self._reader = SafeCsvReader(delimiter=delimiter)
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._reader = SafeCsvReader(delimiter=delimiter, resource_policy=self._resource_policy)
         self._converter = ContractTypeConverter()
         self._identity_namespace = identity_namespace
 
@@ -87,14 +94,14 @@ class CoreTrainingReadinessChecker(TrainingReadinessChecker):
                 )
             )
 
-        with self._storage.open_verified(
-            factory_id=context.factory_id,
-            reference=artifact.reference,
-        ) as stream:
-            raw_bytes = stream.read()
-
         try:
-            df = self._reader.read(raw_bytes)
+            df = read_verified_csv(
+                storage=self._storage,
+                factory_id=context.factory_id,
+                reference=artifact.reference,
+                reader=self._reader,
+                policy=self._resource_policy,
+            )
         except SafeCsvError as exc:
             stage_err = StageResult(
                 context=context,

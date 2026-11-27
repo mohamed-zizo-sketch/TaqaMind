@@ -12,6 +12,11 @@ from taqamind.core.contracts.enums import (
     ValidationSeverity,
 )
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvReader
 from taqamind.core.interfaces.dataset_registry import RecordLineageRegistry
 from taqamind.core.interfaces.leakage import (
@@ -42,11 +47,13 @@ class CoreLeakageValidator(LeakageValidator):
         *,
         delimiter: str = ",",
         identity_namespace: str = "production_record",
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._storage = storage
         self._lineage = lineage_registry
         self._usage = usage_registry
-        self._reader = SafeCsvReader(delimiter=delimiter)
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._reader = SafeCsvReader(delimiter=delimiter, resource_policy=self._resource_policy)
         self._identity_namespace = identity_namespace
 
     def validate(
@@ -72,11 +79,13 @@ class CoreLeakageValidator(LeakageValidator):
             dataset_revision_id=manifest.dataset_revision_id,
         )
         membership.validate_artifact(artifact)
-        with self._storage.open_verified(
+        df = read_verified_csv(
+            storage=self._storage,
             factory_id=context.factory_id,
             reference=artifact.reference,
-        ) as stream:
-            df = self._reader.read(stream.read())
+            reader=self._reader,
+            policy=self._resource_policy,
+        )
 
         checks: list[LeakageCheckResult] = []
         issues: list[ValidationIssue] = []

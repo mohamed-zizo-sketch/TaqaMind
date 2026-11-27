@@ -46,8 +46,8 @@ class FeatureConstraints(BaseModel):
         allow_inf_nan=False,
     )
 
-    minimum: float | None = None
-    maximum: float | None = None
+    minimum: int | float | None = None
+    maximum: int | float | None = None
 
     minimum_inclusive: bool = True
     maximum_inclusive: bool = True
@@ -60,37 +60,25 @@ class FeatureConstraints(BaseModel):
 
         if self.minimum is not None and self.maximum is not None:
             if self.minimum > self.maximum:
-                raise ValueError(
-                    "Minimum cannot be greater than maximum."
-                )
+                raise ValueError("Minimum cannot be greater than maximum.")
 
             if self.minimum == self.maximum and not (
                 self.minimum_inclusive and self.maximum_inclusive
             ):
-                raise ValueError(
-                    "Exclusive equal bounds produce an empty range."
-                )
+                raise ValueError("Exclusive equal bounds produce an empty range.")
 
         if self.minimum is None and not self.minimum_inclusive:
-            raise ValueError(
-                "An exclusive minimum requires a minimum value."
-            )
+            raise ValueError("An exclusive minimum requires a minimum value.")
 
         if self.maximum is None and not self.maximum_inclusive:
-            raise ValueError(
-                "An exclusive maximum requires a maximum value."
-            )
+            raise ValueError("An exclusive maximum requires a maximum value.")
 
         if self.allowed_values is not None:
             if not self.allowed_values:
-                raise ValueError(
-                    "Allowed values cannot be empty."
-                )
+                raise ValueError("Allowed values cannot be empty.")
 
             if len(self.allowed_values) != len(set(self.allowed_values)):
-                raise ValueError(
-                    "Allowed values must be unique."
-                )
+                raise ValueError("Allowed values must be unique.")
 
         return self
 
@@ -130,9 +118,7 @@ class FeatureContract(BaseModel):
 
     source_system: NonEmptyString | None = None
 
-    constraints: FeatureConstraints = Field(
-        default_factory=FeatureConstraints
-    )
+    constraints: FeatureConstraints = Field(default_factory=FeatureConstraints)
 
     derived_from: tuple[FeatureName, ...] = ()
 
@@ -144,15 +130,10 @@ class FeatureContract(BaseModel):
     ) -> tuple[str, ...]:
         """Reject duplicate aliases after normalization."""
 
-        normalized = [
-            alias.strip().casefold()
-            for alias in aliases
-        ]
+        normalized = [alias.strip().casefold() for alias in aliases]
 
         if len(normalized) != len(set(normalized)):
-            raise ValueError(
-                "Feature aliases must be unique."
-            )
+            raise ValueError("Feature aliases must be unique.")
 
         return aliases
 
@@ -171,70 +152,38 @@ class FeatureContract(BaseModel):
         }
 
         has_numeric_constraints = (
-            self.constraints.minimum is not None
-            or self.constraints.maximum is not None
+            self.constraints.minimum is not None or self.constraints.maximum is not None
         )
 
         if has_numeric_constraints and self.data_type not in numeric_types:
-            raise ValueError(
-                "Numeric constraints require a numeric data type."
-            )
+            raise ValueError("Numeric constraints require a numeric data type.")
 
-        if (
-            self.constraints.allowed_values is not None
-            and self.data_type not in categorical_types
-        ):
-            raise ValueError(
-                "Allowed values require a string or category data type."
-            )
+        if self.constraints.allowed_values is not None and self.data_type not in categorical_types:
+            raise ValueError("Allowed values require a string or category data type.")
 
         if self.nullable and self.missing_policy == MissingValuePolicy.REJECT:
-            raise ValueError(
-                "Nullable features cannot use the reject missing policy."
-            )
+            raise ValueError("Nullable features cannot use the reject missing policy.")
 
-        if (
-            not self.nullable
-            and self.missing_policy != MissingValuePolicy.REJECT
-        ):
-            raise ValueError(
-                "Non-nullable features must reject missing values."
-            )
+        if not self.nullable and self.missing_policy != MissingValuePolicy.REJECT:
+            raise ValueError("Non-nullable features must reject missing values.")
 
-        if (
-            self.role == FeatureRole.TARGET
-            and self.missing_policy == MissingValuePolicy.IMPUTE
-        ):
-            raise ValueError(
-                "Target values cannot use feature imputation."
-            )
+        if self.role == FeatureRole.TARGET and self.missing_policy == MissingValuePolicy.IMPUTE:
+            raise ValueError("Target values cannot use feature imputation.")
 
         if self.origin == FeatureOrigin.DERIVED:
             if not self.derived_from:
-                raise ValueError(
-                    "Derived features must declare their dependencies."
-                )
+                raise ValueError("Derived features must declare their dependencies.")
 
         elif self.derived_from:
-            raise ValueError(
-                "Only derived features may declare dependencies."
-            )
+            raise ValueError("Only derived features may declare dependencies.")
 
         if self.name in self.derived_from:
-            raise ValueError(
-                "A feature cannot depend on itself."
-            )
+            raise ValueError("A feature cannot depend on itself.")
 
         if len(self.derived_from) != len(set(self.derived_from)):
-            raise ValueError(
-                "Derived feature dependencies must be unique."
-            )
+            raise ValueError("Derived feature dependencies must be unique.")
 
-        if self.name.casefold() in {
-            alias.casefold() for alias in self.aliases
-        }:
-            raise ValueError(
-                "An alias cannot duplicate the canonical feature name."
-            )
+        if self.name.casefold() in {alias.casefold() for alias in self.aliases}:
+            raise ValueError("An alias cannot duplicate the canonical feature name.")
 
         return self

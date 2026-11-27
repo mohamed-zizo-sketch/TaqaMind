@@ -12,6 +12,11 @@ from uuid import UUID, uuid4
 import pandas as pd
 
 from taqamind.core.contracts.dataset import DatasetContract
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
@@ -49,6 +54,26 @@ from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 from taqamind.core.registry._json_store import safe_resolve
 
 
+def _read_partition_bytes(
+    path: Path, reference: PartitionDataReference, policy: CsvResourcePolicy
+) -> BytesIO:
+    """Verify a bounded snapshot before handing bytes to a consumer."""
+    if reference.size_bytes > policy.max_bytes:
+        raise DataAccessDeniedError("Partition byte limit exceeded.")
+    buffer = BytesIO()
+    remaining = reference.size_bytes
+    with path.open("rb") as source:
+        while chunk := source.read(min(1024 * 1024, remaining + 1)):
+            if len(chunk) > remaining:
+                raise DataAccessDeniedError("Partition size does not match reference.")
+            buffer.write(chunk)
+            remaining -= len(chunk)
+    if remaining or calculate_bytes_sha256(buffer.getvalue()) != reference.content_sha256:
+        raise DataAccessDeniedError("Partition integrity check failed.")
+    buffer.seek(0)
+    return buffer
+
+
 class LocalDevelopmentDataProvider(DevelopmentDataProvider):
     """Materializes only approved train/validation partitions from trusted registries."""
 
@@ -62,6 +87,7 @@ class LocalDevelopmentDataProvider(DevelopmentDataProvider):
         split_registry: SplitRegistry,
         usage_registry: RecordUsageRegistry,
         csv_reader: SafeCsvReader | None = None,
+        resource_policy: CsvResourcePolicy | None = None,
         identity_namespace: str = "production_record",
     ) -> None:
         self._partition_root = Path(partition_root)
@@ -71,7 +97,8 @@ class LocalDevelopmentDataProvider(DevelopmentDataProvider):
         self._lineage_registry = lineage_registry
         self._split_registry = split_registry
         self._usage_registry = usage_registry
-        self._csv_reader = csv_reader or SafeCsvReader()
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._csv_reader = (csv_reader or SafeCsvReader()).bounded_by(self._resource_policy)
         self._identity_namespace = identity_namespace
 
     def _scope_for(self, context: PipelineContext) -> RecordScope:
@@ -97,11 +124,13 @@ class LocalDevelopmentDataProvider(DevelopmentDataProvider):
             factory_id=context.factory_id,
             dataset_revision_id=dataset_revision_id,
         )
-        with self._storage.open_verified(
+        df = read_verified_csv(
+            storage=self._storage,
             factory_id=context.factory_id,
             reference=dataset_artifact.reference,
-        ) as stream:
-            df = self._csv_reader.read(stream.read())
+            reader=self._csv_reader,
+            policy=self._resource_policy,
+        )
         membership = self._lineage_registry.get_membership(
             scope=self._scope_for(context),
             dataset_revision_id=dataset_revision_id,
@@ -123,9 +152,7 @@ class LocalDevelopmentDataProvider(DevelopmentDataProvider):
         factory_id: UUID,
         contract: DatasetContract,
     ) -> PartitionDataReference:
-        record_to_index = {
-            item.record_id: idx for idx, item in enumerate(membership.memberships)
-        }
+        record_to_index = {item.record_id: idx for idx, item in enumerate(membership.memberships)}
         indices: list[int] = []
         for rec_id in partition.record_ids:
             if rec_id not in record_to_index:
@@ -136,6 +163,8 @@ class LocalDevelopmentDataProvider(DevelopmentDataProvider):
         selected_cols = tuple(col for col in df.columns if col in allowed)
         sub_df = df.iloc[indices][list(selected_cols)].copy()
         payload = sub_df.to_csv(index=False).encode("utf-8")
+        if len(payload) > self._resource_policy.max_bytes:
+            raise DataAccessDeniedError("Partition byte limit exceeded.")
         sha256 = calculate_bytes_sha256(payload)
         partition_artifact_id = uuid4()
         path = self._partition_path(
@@ -234,10 +263,7 @@ class LocalDevelopmentDataProvider(DevelopmentDataProvider):
             factory_id=partition.factory_id,
             partition_artifact_id=partition.partition_artifact_id,
         )
-        payload = path.read_bytes()
-        if calculate_bytes_sha256(payload) != partition.content_sha256:
-            raise DataAccessDeniedError("Partition integrity check failed.")
-        return BytesIO(payload)
+        return _read_partition_bytes(path, partition, self._resource_policy)
 
     @contextmanager
     def open_train(self, *, access: DevelopmentDataAccess) -> Iterator[BinaryIO]:
@@ -277,6 +303,7 @@ class LocalProtectedTestDataProvider(ProtectedTestDataProvider):
         split_registry: SplitRegistry,
         evaluation_registry: EvaluationRegistry,
         csv_reader: SafeCsvReader | None = None,
+        resource_policy: CsvResourcePolicy | None = None,
         identity_namespace: str = "production_record",
     ) -> None:
         self._partition_root = Path(partition_root)
@@ -286,7 +313,8 @@ class LocalProtectedTestDataProvider(ProtectedTestDataProvider):
         self._lineage_registry = lineage_registry
         self._split_registry = split_registry
         self._evaluation_registry = evaluation_registry
-        self._csv_reader = csv_reader or SafeCsvReader()
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._csv_reader = (csv_reader or SafeCsvReader()).bounded_by(self._resource_policy)
         self._identity_namespace = identity_namespace
 
     def _partition_path(self, *, factory_id: UUID, partition_artifact_id: UUID) -> Path:
@@ -313,24 +341,26 @@ class LocalProtectedTestDataProvider(ProtectedTestDataProvider):
             factory_id=factory_id,
             dataset_revision_id=manifest.dataset_revision_id,
         )
-        with self._storage.open_verified(
+        df = read_verified_csv(
+            storage=self._storage,
             factory_id=factory_id,
             reference=dataset_artifact.reference,
-        ) as stream:
-            df = self._csv_reader.read(stream.read())
+            reader=self._csv_reader,
+            policy=self._resource_policy,
+        )
 
         membership = self._lineage_registry.get_membership(
             scope=reservation.scope,
             dataset_revision_id=manifest.dataset_revision_id,
         )
-        record_to_index = {
-            item.record_id: idx for idx, item in enumerate(membership.memberships)
-        }
+        record_to_index = {item.record_id: idx for idx, item in enumerate(membership.memberships)}
         indices = [record_to_index[r] for r in reservation.test_record_ids]
         allowed = set(contract.predictor_names) | {contract.target.feature.name}
         selected_cols = tuple(col for col in df.columns if col in allowed)
         sub_df = df.iloc[indices][list(selected_cols)].copy()
         payload = sub_df.to_csv(index=False).encode("utf-8")
+        if len(payload) > self._resource_policy.max_bytes:
+            raise DataAccessDeniedError("Partition byte limit exceeded.")
         sha256 = calculate_bytes_sha256(payload)
 
         partition_artifact_id = uuid4()
@@ -371,10 +401,7 @@ class LocalProtectedTestDataProvider(ProtectedTestDataProvider):
             factory_id=factory_id,
             partition_artifact_id=access.test.partition_artifact_id,
         )
-        payload = path.read_bytes()
-        if calculate_bytes_sha256(payload) != access.test.content_sha256:
-            raise DataAccessDeniedError("Protected test partition integrity check failed.")
-        stream = BytesIO(payload)
+        stream = _read_partition_bytes(path, access.test, self._resource_policy)
         try:
             yield stream
         finally:
@@ -384,10 +411,13 @@ class LocalProtectedTestDataProvider(ProtectedTestDataProvider):
 def read_partition_dataframe(
     stream: BinaryIO,
     csv_reader: SafeCsvReader | None = None,
+    *,
+    resource_policy: CsvResourcePolicy | None = None,
 ) -> pd.DataFrame:
     """Read a materialized partition CSV stream using SafeCsvReader."""
-    reader = csv_reader or SafeCsvReader()
-    return reader.read(stream.read())
+    policy = resolve_internal_csv_policy(resource_policy)
+    reader = (csv_reader or SafeCsvReader()).bounded_by(policy)
+    return reader.read_stream(stream)
 
 
 def convert_dataframe_by_contract(
@@ -402,7 +432,14 @@ def convert_dataframe_by_contract(
     out = df.copy()
     for col in out.columns:
         if col in col_map:
-            out[col] = conv.convert(out[col], data_type=col_map[col].data_type).values
+            result = conv.convert(out[col], data_type=col_map[col].data_type)
+            if not result.is_valid:
+                raise DataAccessDeniedError(
+                    f"Invalid typed values in column '{col}': "
+                    f"{len(result.invalid_positions)} invalid row(s); "
+                    f"sample positions={result.invalid_positions[:20]}."
+                )
+            out[col] = result.values
     return out
 
 

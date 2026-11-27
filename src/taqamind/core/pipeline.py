@@ -15,6 +15,11 @@ from taqamind.core.automl import (
 from taqamind.core.evaluation import ProtectedFinalEvaluator
 from taqamind.core.feature_engineering import DeterministicFeatureEngineer
 from taqamind.core.ingestion import CsvDataIngestion
+from taqamind.core.ingestion.resource_policy import (
+    DEFAULT_INTERNAL_CSV_POLICY,
+    DEFAULT_RAW_CSV_POLICY,
+    CsvResourcePolicy,
+)
 from taqamind.core.lineage import LocalRecordLineageRegistry, RecordMembershipBuilder
 from taqamind.core.mapping import DeterministicColumnMapper
 from taqamind.core.prediction import CorePredictionEngine, LocalActiveModelProvider
@@ -65,9 +70,16 @@ class CorePlatformServices:
     trainer: ControlledAutoMLTrainer
     active_model_provider: LocalActiveModelProvider
     prediction_engine: CorePredictionEngine
+    internal_csv_policy: CsvResourcePolicy = DEFAULT_INTERNAL_CSV_POLICY
 
     @classmethod
-    def create_local(cls, root_dir: Path) -> CorePlatformServices:
+    def create_local(
+        cls,
+        root_dir: Path,
+        *,
+        raw_csv_policy: CsvResourcePolicy = DEFAULT_RAW_CSV_POLICY,
+        internal_csv_policy: CsvResourcePolicy = DEFAULT_INTERNAL_CSV_POLICY,
+    ) -> CorePlatformServices:
         """Construct a complete factory-isolated local Core platform stack under root_dir."""
         root = Path(root_dir)
         dataset_storage = LocalDatasetArtifactStorage(root / "dataset_storage")
@@ -92,6 +104,7 @@ class CorePlatformServices:
         )
         development_data_provider = LocalDevelopmentDataProvider(
             partition_root=root / "dev_partitions",
+            resource_policy=internal_csv_policy,
             storage=dataset_storage,
             dataset_registry=dataset_registry,
             lineage_registry=lineage_registry,
@@ -100,6 +113,7 @@ class CorePlatformServices:
         )
         protected_test_data_provider = LocalProtectedTestDataProvider(
             partition_root=root / "test_partitions",
+            resource_policy=internal_csv_policy,
             storage=dataset_storage,
             dataset_registry=dataset_registry,
             lineage_registry=lineage_registry,
@@ -121,31 +135,45 @@ class CorePlatformServices:
             training_registry=training_registry,
             evaluation_registry=evaluation_registry,
             model_registry=model_registry,
-            ingestion=CsvDataIngestion(dataset_storage),
-            profiler=PandasDataProfiler(dataset_storage),
-            mapper=DeterministicColumnMapper(dataset_storage),
-            validator=ContractSemanticValidator(dataset_storage),
-            cleaner=ContractDataCleaner(dataset_storage),
-            feature_engineer=DeterministicFeatureEngineer(dataset_storage),
-            membership_builder=RecordMembershipBuilder(dataset_storage, lineage_registry),
-            readiness_checker=CoreTrainingReadinessChecker(dataset_storage, lineage_registry),
-            splitter=CoreDatasetSplitter(dataset_storage, lineage_registry),
+            ingestion=CsvDataIngestion(dataset_storage, resource_policy=raw_csv_policy),
+            profiler=PandasDataProfiler(dataset_storage, resource_policy=internal_csv_policy),
+            mapper=DeterministicColumnMapper(dataset_storage, resource_policy=internal_csv_policy),
+            validator=ContractSemanticValidator(
+                dataset_storage, resource_policy=internal_csv_policy
+            ),
+            cleaner=ContractDataCleaner(dataset_storage, resource_policy=internal_csv_policy),
+            feature_engineer=DeterministicFeatureEngineer(
+                dataset_storage, resource_policy=internal_csv_policy
+            ),
+            membership_builder=RecordMembershipBuilder(
+                dataset_storage, lineage_registry, resource_policy=internal_csv_policy
+            ),
+            readiness_checker=CoreTrainingReadinessChecker(
+                dataset_storage, lineage_registry, resource_policy=internal_csv_policy
+            ),
+            splitter=CoreDatasetSplitter(
+                dataset_storage, lineage_registry, resource_policy=internal_csv_policy
+            ),
             leakage_validator=CoreLeakageValidator(
                 dataset_storage,
                 lineage_registry,
                 usage_registry,
+                resource_policy=internal_csv_policy,
             ),
             development_data_provider=development_data_provider,
             protected_test_data_provider=protected_test_data_provider,
             trainer=ControlledAutoMLTrainer(
                 development_data_provider=development_data_provider,
                 model_storage=model_storage,
+                resource_policy=internal_csv_policy,
             ),
             active_model_provider=active_model_provider,
+            internal_csv_policy=internal_csv_policy,
             prediction_engine=CorePredictionEngine(
                 active_model_provider=active_model_provider,
                 dataset_storage=dataset_storage,
                 lineage_registry=lineage_registry,
+                resource_policy=internal_csv_policy,
             ),
         )
 
@@ -155,6 +183,7 @@ class CorePlatformServices:
             contract=contract,
             evaluation_registry=self.evaluation_registry,
             test_data_provider=self.protected_test_data_provider,
+            resource_policy=self.internal_csv_policy,
             model_storage=self.model_storage,
         )
 

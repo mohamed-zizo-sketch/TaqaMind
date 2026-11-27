@@ -1,4 +1,4 @@
-﻿"""Local filesystem implementations for immutable artifact storage."""
+"""Local filesystem implementations for immutable artifact storage."""
 
 import os
 import tempfile
@@ -52,6 +52,15 @@ class _LocalArtifactStore:
         """Return the resolved root directory for stored artifacts."""
         return self._base_dir
 
+    def _validate_reference_size(
+        self,
+        reference: StorageReference,
+    ) -> None:
+        """Reject references exceeding the configured storage limit."""
+
+        if self._max_size_bytes is not None and reference.size_bytes > self._max_size_bytes:
+            raise ArtifactSizeLimitError("Artifact exceeds the configured size limit.")
+
     def _resolve_target(
         self,
         *,
@@ -83,9 +92,7 @@ class _LocalArtifactStore:
                 while chunk := stream.read(self._chunk_size):
                     size_bytes += len(chunk)
                     if self._max_size_bytes is not None and size_bytes > self._max_size_bytes:
-                        raise ArtifactSizeLimitError(
-                            "Artifact exceeds the configured size limit."
-                        )
+                        raise ArtifactSizeLimitError("Artifact exceeds the configured size limit.")
                     digest.update(chunk)
                     tmp_file.write(chunk)
         except BaseException:
@@ -106,6 +113,7 @@ class _LocalArtifactStore:
         stream: BinaryIO,
     ) -> None:
         target = self._resolve_target(factory_id=factory_id, reference=reference)
+        self._validate_reference_size(reference)
         tmp_path, integrity = self._stream_to_temp(
             parent_dir=target.parent,
             stream=stream,
@@ -121,6 +129,7 @@ class _LocalArtifactStore:
                         existing_integrity = calculate_stream_integrity(
                             existing_file,
                             chunk_size=self._chunk_size,
+                            max_size_bytes=self._max_size_bytes,
                         )
                     if existing_integrity != integrity:
                         raise ArtifactConflictError(
@@ -141,26 +150,34 @@ class _LocalArtifactStore:
         factory_id: UUID,
         reference: StorageReference,
     ) -> Iterator[BinaryIO]:
-        target = self._resolve_target(factory_id=factory_id, reference=reference)
+        target = self._resolve_target(
+            factory_id=factory_id,
+            reference=reference,
+        )
+
+        self._validate_reference_size(reference)
+
         if not target.is_file():
-            raise ArtifactNotFoundError(
-                f"Artifact '{reference.storage_key}' does not exist."
-            )
+            raise ArtifactNotFoundError(f"Artifact '{reference.storage_key}' does not exist.")
 
         file_obj = target.open("rb")
+
         try:
             integrity = calculate_stream_integrity(
                 file_obj,
                 chunk_size=self._chunk_size,
+                max_size_bytes=self._max_size_bytes,
             )
-            verify_artifact_integrity(reference=reference, integrity=integrity)
-            file_obj.seek(0)
-        except BaseException:
-            file_obj.close()
-            raise
 
-        try:
+            verify_artifact_integrity(
+                reference=reference,
+                integrity=integrity,
+            )
+
+            file_obj.seek(0)
+
             yield file_obj
+
         finally:
             file_obj.close()
 

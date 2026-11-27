@@ -25,6 +25,7 @@ from taqamind.core.contracts import (
     TaskType,
 )
 from taqamind.core.ingestion import CsvDataIngestion
+from taqamind.core.ingestion.resource_policy import CsvResourcePolicy
 from taqamind.core.ingestion.safe_csv import SafeCsvReader
 from taqamind.core.interfaces import (
     ArtifactFormat,
@@ -133,7 +134,6 @@ def make_contract_and_context(
     return contract, context
 
 
-
 def make_raw(storage, context, payload):
     reference = ArtifactReference(
         factory_id=context.factory_id,
@@ -207,13 +207,16 @@ def test_profile_preserves_lexical_identity_and_schema(tmp_path: Path):
     storage = LocalDatasetArtifactStorage(tmp_path)
     contract, context = make_contract_and_context()
     raw = make_raw(
-        storage, context,
+        storage,
+        context,
         b"batch_id,planned_qty,shift_code,waste_qty\n"
         b"000123,100,NA,5\n00123,100,NULL,5\n000123,100,NA,5\nNA,200,,\n",
     )
-    ingested = CsvDataIngestion(storage).ingest(
-        context=context, artifact=raw, contract=contract
-    ).output_artifact
+    ingested = (
+        CsvDataIngestion(storage)
+        .ingest(context=context, artifact=raw, contract=contract)
+        .output_artifact
+    )
     assert ingested is not None
     result = PandasDataProfiler(storage).profile(
         context=context, artifact=ingested, contract=contract
@@ -235,3 +238,163 @@ def test_profile_preserves_lexical_identity_and_schema(tmp_path: Path):
     assert tuple((c.name, c.physical_dtype) for c in profile.columns) == tuple(
         (c.name, c.physical_dtype) for c in ingested.metadata.columns
     )
+
+
+def test_ingestion_rejects_oversized_reference_before_opening(
+    tmp_path,
+    monkeypatch,
+):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+
+    payload = b"id,value\n1,2\n"
+    raw = make_raw(storage, context, payload)
+
+    def forbidden_open(*args, **kwargs):
+        pytest.fail("Oversized artifact must not be opened.")
+
+    monkeypatch.setattr(
+        storage,
+        "open_verified",
+        forbidden_open,
+    )
+
+    policy = CsvResourcePolicy(max_bytes=len(payload) - 1)
+
+    result = CsvDataIngestion(
+        storage,
+        resource_policy=policy,
+    ).ingest(
+        context=context,
+        artifact=raw,
+        contract=contract,
+    )
+
+    assert result.status == ExecutionStatus.FAILED
+    assert result.output_artifact is None
+    assert result.error is not None
+    assert result.error.code == "CSV_BYTE_LIMIT_EXCEEDED"
+
+
+@pytest.mark.parametrize(
+    ("limits", "payload", "expected_code"),
+    [
+        (
+            {"max_rows": 1},
+            b"a,b\n1,2\n3,4\n",
+            "CSV_ROW_LIMIT_EXCEEDED",
+        ),
+        (
+            {"max_columns": 1},
+            b"a,b\n1,2\n",
+            "CSV_COLUMN_LIMIT_EXCEEDED",
+        ),
+        (
+            {"max_cells": 3},
+            b"a,b\n1,2\n3,4\n",
+            "CSV_CELL_LIMIT_EXCEEDED",
+        ),
+    ],
+)
+def test_ingestion_enforces_resource_policy(
+    tmp_path,
+    limits,
+    payload,
+    expected_code,
+):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+
+    raw = make_raw(storage, context, payload)
+
+    before = {path for path in tmp_path.rglob("*") if path.is_file()}
+
+    result = CsvDataIngestion(
+        storage,
+        resource_policy=CsvResourcePolicy(**limits),
+    ).ingest(
+        context=context,
+        artifact=raw,
+        contract=contract,
+    )
+
+    assert result.status == ExecutionStatus.FAILED
+    assert result.output_artifact is None
+    assert result.error is not None
+    assert result.error.code == expected_code
+
+    after = {path for path in tmp_path.rglob("*") if path.is_file()}
+
+    assert before == after
+
+
+def test_ingestion_accepts_exact_resource_boundaries(tmp_path):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+    contract, context = make_contract_and_context()
+
+    payload = b"a,b\n1,2\n3,4\n"
+    raw = make_raw(storage, context, payload)
+
+    policy = CsvResourcePolicy(
+        max_bytes=len(payload),
+        max_rows=2,
+        max_columns=2,
+        max_cells=4,
+    )
+
+    result = CsvDataIngestion(
+        storage,
+        resource_policy=policy,
+    ).ingest(
+        context=context,
+        artifact=raw,
+        contract=contract,
+    )
+
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.output_artifact is not None
+    assert result.output_artifact.metadata.row_count == 2
+
+
+def test_ingestion_policy_changes_configuration_fingerprint(
+    tmp_path,
+):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+
+    default = CsvDataIngestion(storage)
+
+    custom = CsvDataIngestion(
+        storage,
+        resource_policy=CsvResourcePolicy(
+            max_bytes=1024,
+        ),
+    )
+
+    assert default._configuration_sha256 != custom._configuration_sha256
+
+
+def test_ingestion_rejects_conflicting_policy(tmp_path):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+
+    with pytest.raises(ValueError):
+        CsvDataIngestion(
+            storage,
+            max_rows=10,
+            resource_policy=CsvResourcePolicy(),
+        )
+
+
+def test_ingestion_preserves_legacy_max_rows_configuration(
+    tmp_path,
+):
+    storage = LocalDatasetArtifactStorage(tmp_path)
+
+    ingestion = CsvDataIngestion(
+        storage,
+        max_rows=100,
+    )
+
+    assert ingestion._resource_policy.max_rows == 100
+    assert ingestion._resource_policy.max_bytes == 52_428_800
+    assert ingestion._resource_policy.max_columns == 500
+    assert ingestion._resource_policy.max_cells == 5_000_000

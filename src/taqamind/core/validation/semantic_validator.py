@@ -11,13 +11,17 @@ from taqamind.core.contracts.enums import (
     DatasetPurpose,
     DataType,
     IssueImpact,
-    MissingValuePolicy,
     PipelineStage,
     ReadinessStatus,
     ValidationSeverity,
 )
 from taqamind.core.contracts.feature import FeatureContract
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.context import PipelineContext
 from taqamind.core.interfaces.dataset import DatasetArtifact, DatasetState
@@ -33,6 +37,7 @@ from taqamind.core.interfaces.results import (
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
 from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
+from taqamind.core.validation.column_validation import validate_column
 
 _MAX_ROW_SAMPLES = 20
 
@@ -46,9 +51,11 @@ class ContractSemanticValidator(SemanticValidator):
         *,
         delimiter: str = ",",
         max_rows: int | None = None,
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._storage = storage
-        self._reader = SafeCsvReader(delimiter=delimiter, max_rows=max_rows)
+        self._resource_policy = resolve_internal_csv_policy(resource_policy, max_rows=max_rows)
+        self._reader = SafeCsvReader(delimiter=delimiter, resource_policy=self._resource_policy)
         self._converter = ContractTypeConverter()
 
     def validate(
@@ -66,14 +73,14 @@ class ContractSemanticValidator(SemanticValidator):
             expected_state=DatasetState.MAPPED,
         )
 
-        with self._storage.open_verified(
-            factory_id=context.factory_id,
-            reference=artifact.reference,
-        ) as stream:
-            raw_bytes = stream.read()
-
         try:
-            df = self._reader.read(raw_bytes)
+            df = read_verified_csv(
+                storage=self._storage,
+                factory_id=context.factory_id,
+                reference=artifact.reference,
+                reader=self._reader,
+                policy=self._resource_policy,
+            )
         except SafeCsvError as exc:
             return StageResult(
                 context=context,
@@ -100,9 +107,7 @@ class ContractSemanticValidator(SemanticValidator):
             )
 
         column_map = contract.column_map
-        unknown_columns = tuple(
-            str(col) for col in df.columns if str(col) not in column_map
-        )
+        unknown_columns = tuple(str(col) for col in df.columns if str(col) not in column_map)
         if unknown_columns:
             issues.append(
                 ValidationIssue(
@@ -132,9 +137,7 @@ class ContractSemanticValidator(SemanticValidator):
 
         if context.purpose != DatasetPurpose.RESEARCH:
             missing_required = tuple(
-                col
-                for col in contract.required_columns(context.purpose)
-                if col not in df.columns
+                col for col in contract.required_columns(context.purpose) if col not in df.columns
             )
             if missing_required:
                 issues.append(
@@ -163,14 +166,10 @@ class ContractSemanticValidator(SemanticValidator):
                             stage=PipelineStage.SEMANTIC_VALIDATION,
                             severity=ValidationSeverity.ERROR,
                             impact=IssueImpact.BLOCKING,
-                            message=(
-                                "Duplicate business key records violate row identity."
-                            ),
+                            message=("Duplicate business key records violate row identity."),
                             columns=contract.business_keys,
                             affected_rows=int(len(dup_indices)),
-                            row_samples=tuple(
-                                int(idx) for idx in dup_indices[:_MAX_ROW_SAMPLES]
-                            ),
+                            row_samples=tuple(int(idx) for idx in dup_indices[:_MAX_ROW_SAMPLES]),
                             recommendation="Deduplicate business keys before proceeding.",
                         )
                     )
@@ -209,14 +208,10 @@ class ContractSemanticValidator(SemanticValidator):
                             stage=PipelineStage.SEMANTIC_VALIDATION,
                             severity=ValidationSeverity.ERROR,
                             impact=IssueImpact.BLOCKING,
-                            message=(
-                                f"Rate denominator '{denom_name}' must be strictly positive."
-                            ),
+                            message=(f"Rate denominator '{denom_name}' must be strictly positive."),
                             columns=(denom_name,),
                             affected_rows=int(len(bad_indices)),
-                            row_samples=tuple(
-                                int(idx) for idx in bad_indices[:_MAX_ROW_SAMPLES]
-                            ),
+                            row_samples=tuple(int(idx) for idx in bad_indices[:_MAX_ROW_SAMPLES]),
                         )
                     )
 
@@ -250,177 +245,11 @@ class ContractSemanticValidator(SemanticValidator):
         series: pd.Series,
         feature: FeatureContract,
     ) -> list[ValidationIssue]:
-        issues: list[ValidationIssue] = []
+        """Validate a mapped column using shared contract rules."""
 
-        na_mask = series.isna()
-        missing_indices = np.flatnonzero(na_mask.to_numpy())
-        if len(missing_indices) > 0:
-            if feature.missing_policy == MissingValuePolicy.REJECT:
-                issues.append(
-                    ValidationIssue(
-                        code="MISSING_VALUES_REJECTED",
-                        stage=PipelineStage.SEMANTIC_VALIDATION,
-                        severity=ValidationSeverity.ERROR,
-                        impact=IssueImpact.BLOCKING,
-                        message=(
-                            f"Non-nullable column '{feature.name}' contains missing values."
-                        ),
-                        columns=(feature.name,),
-                        affected_rows=int(len(missing_indices)),
-                        row_samples=tuple(
-                            int(idx) for idx in missing_indices[:_MAX_ROW_SAMPLES]
-                        ),
-                        recommendation="Populate missing values or reject incomplete rows.",
-                    )
-                )
-            elif feature.missing_policy == MissingValuePolicy.IMPUTE:
-                issues.append(
-                    ValidationIssue(
-                        code="MISSING_VALUES_PENDING_IMPUTATION",
-                        stage=PipelineStage.SEMANTIC_VALIDATION,
-                        severity=ValidationSeverity.WARNING,
-                        impact=IssueImpact.NONE,
-                        message=(
-                            f"Column '{feature.name}' contains missing values scheduled "
-                            "for cleaning/imputation."
-                        ),
-                        columns=(feature.name,),
-                        affected_rows=int(len(missing_indices)),
-                        row_samples=tuple(
-                            int(idx) for idx in missing_indices[:_MAX_ROW_SAMPLES]
-                        ),
-                    )
-                )
-
-        non_null_mask = ~na_mask
-        if not bool(non_null_mask.any()):
-            return issues
-
-        parsed_numeric, type_bad_indices = self._check_data_type(
-            series=series,
-            non_null_mask=non_null_mask,
-            data_type=feature.data_type,
+        return validate_column(
+            series,
+            feature,
+            stage=PipelineStage.SEMANTIC_VALIDATION,
+            converter=self._converter,
         )
-        if len(type_bad_indices) > 0:
-            issues.append(
-                ValidationIssue(
-                    code="INVALID_DATA_TYPE",
-                    stage=PipelineStage.SEMANTIC_VALIDATION,
-                    severity=ValidationSeverity.ERROR,
-                    impact=IssueImpact.BLOCKING,
-                    message=(
-                        f"Column '{feature.name}' contains values incompatible with "
-                        f"'{feature.data_type.value}'."
-                    ),
-                    columns=(feature.name,),
-                    affected_rows=int(len(type_bad_indices)),
-                    row_samples=tuple(
-                        int(idx) for idx in type_bad_indices[:_MAX_ROW_SAMPLES]
-                    ),
-                )
-            )
-
-        constraints = feature.constraints
-        if parsed_numeric is not None and (
-            constraints.minimum is not None or constraints.maximum is not None
-        ):
-            min_dec = (
-                Decimal(str(constraints.minimum))
-                if constraints.minimum is not None
-                else None
-            )
-            max_dec = (
-                Decimal(str(constraints.maximum))
-                if constraints.maximum is not None
-                else None
-            )
-            range_bad_indices: list[int] = []
-            for idx, val in enumerate(parsed_numeric):
-                if pd.isna(val):
-                    continue
-                dec_val = (
-                    Decimal(int(val))
-                    if feature.data_type == DataType.INTEGER
-                    else Decimal(str(val))
-                )
-                if min_dec is not None:
-                    if (constraints.minimum_inclusive and dec_val < min_dec) or (
-                        not constraints.minimum_inclusive and dec_val <= min_dec
-                    ):
-                        range_bad_indices.append(idx)
-                        continue
-                if max_dec is not None:
-                    if (constraints.maximum_inclusive and dec_val > max_dec) or (
-                        not constraints.maximum_inclusive and dec_val >= max_dec
-                    ):
-                        range_bad_indices.append(idx)
-            if range_bad_indices:
-                issues.append(
-                    ValidationIssue(
-                        code="CONSTRAINT_RANGE_VIOLATION",
-                        stage=PipelineStage.SEMANTIC_VALIDATION,
-                        severity=ValidationSeverity.ERROR,
-                        impact=IssueImpact.BLOCKING,
-                        message=(
-                            f"Column '{feature.name}' violates declared numeric bounds."
-                        ),
-                        columns=(feature.name,),
-                        affected_rows=int(len(range_bad_indices)),
-                        row_samples=tuple(
-                            int(idx) for idx in range_bad_indices[:_MAX_ROW_SAMPLES]
-                        ),
-                    )
-                )
-
-        if constraints.allowed_values is not None:
-            allowed = set(constraints.allowed_values)
-            str_values = series[non_null_mask].astype(str).str.strip()
-            invalid_mask = ~str_values.isin(allowed)
-            bad_positions = np.flatnonzero(non_null_mask.to_numpy())[
-                invalid_mask.to_numpy()
-            ]
-            if len(bad_positions) > 0:
-                issues.append(
-                    ValidationIssue(
-                        code="CONSTRAINT_ALLOWED_VALUES_VIOLATION",
-                        stage=PipelineStage.SEMANTIC_VALIDATION,
-                        severity=ValidationSeverity.ERROR,
-                        impact=IssueImpact.BLOCKING,
-                        message=(
-                            f"Column '{feature.name}' contains values outside allowed set."
-                        ),
-                        columns=(feature.name,),
-                        affected_rows=int(len(bad_positions)),
-                        row_samples=tuple(
-                            int(idx) for idx in bad_positions[:_MAX_ROW_SAMPLES]
-                        ),
-                    )
-                )
-
-        return issues
-
-    def _check_data_type(
-        self,
-        *,
-        series: pd.Series,
-        non_null_mask: pd.Series,
-        data_type: DataType,
-    ) -> tuple[pd.Series | None, np.ndarray]:
-        if data_type in {
-            DataType.STRING,
-            DataType.CATEGORY,
-            DataType.INTEGER,
-            DataType.FLOAT,
-            DataType.BOOLEAN,
-            DataType.DATE,
-            DataType.DATETIME,
-        }:
-            conversion = self._converter.convert(series, data_type=data_type)
-            numeric_values = (
-                conversion.values
-                if data_type in {DataType.INTEGER, DataType.FLOAT}
-                else None
-            )
-            return numeric_values, np.asarray(conversion.invalid_positions, dtype=int)
-
-        raise ValueError(f"Unsupported data type: {data_type}")

@@ -18,6 +18,11 @@ from taqamind.core.contracts.enums import (
 )
 from taqamind.core.contracts.feature import FeatureContract
 from taqamind.core.contracts.validation import ValidationIssue, ValidationReport
+from taqamind.core.ingestion.artifact_csv import csv_configuration_sha256, read_verified_csv
+from taqamind.core.ingestion.resource_policy import (
+    CsvResourcePolicy,
+    resolve_internal_csv_policy,
+)
 from taqamind.core.ingestion.safe_csv import SafeCsvError, SafeCsvReader
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
@@ -41,6 +46,7 @@ from taqamind.core.interfaces.results import (
     StageTiming,
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
+from taqamind.core.preprocessing.missing_values import normalize_text_missing
 from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 
 
@@ -51,13 +57,18 @@ class ContractDataCleaner(DataCleaner):
         self,
         storage: DatasetArtifactStorage,
         *,
-        implementation_version: str = "0.2.0",
+        implementation_version: str = "0.4.0",
         delimiter: str = ",",
         max_rows: int | None = None,
+        resource_policy: CsvResourcePolicy | None = None,
     ) -> None:
         self._storage = storage
         self._implementation_version = implementation_version
-        self._reader = SafeCsvReader(delimiter=delimiter, max_rows=max_rows)
+        self._resource_policy = resolve_internal_csv_policy(resource_policy, max_rows=max_rows)
+        self._reader = SafeCsvReader(delimiter=delimiter, resource_policy=self._resource_policy)
+        self._configuration_sha256 = csv_configuration_sha256(
+            self._resource_policy, delimiter=delimiter
+        )
         self._converter = ContractTypeConverter()
 
     def clean(
@@ -75,14 +86,14 @@ class ContractDataCleaner(DataCleaner):
             expected_state=DatasetState.MAPPED,
         )
 
-        with self._storage.open_verified(
-            factory_id=context.factory_id,
-            reference=artifact.reference,
-        ) as stream:
-            raw_bytes = stream.read()
-
         try:
-            df = self._reader.read(raw_bytes)
+            df = read_verified_csv(
+                storage=self._storage,
+                factory_id=context.factory_id,
+                reference=artifact.reference,
+                reader=self._reader,
+                policy=self._resource_policy,
+            )
         except SafeCsvError as exc:
             return StageResult(
                 context=context,
@@ -124,6 +135,24 @@ class ContractDataCleaner(DataCleaner):
                 )
             )
 
+        if context.purpose != DatasetPurpose.RESEARCH:
+            missing_required = tuple(
+                col
+                for col in contract.required_columns(context.purpose)
+                if col not in cleaned_df.columns
+            )
+            if missing_required:
+                issues.append(
+                    ValidationIssue(
+                        code="CLEANING_MISSING_REQUIRED_COLUMNS",
+                        stage=PipelineStage.CLEANING,
+                        severity=ValidationSeverity.CRITICAL,
+                        impact=IssueImpact.BLOCKING,
+                        message="Mapped dataset is missing required contract columns.",
+                        columns=missing_required,
+                    )
+                )
+
         for col_name in cleaned_df.columns:
             col_key = str(col_name)
             feature = column_map.get(col_key)
@@ -151,12 +180,8 @@ class ContractDataCleaner(DataCleaner):
         ):
             before_keys = df[list(contract.business_keys)]
             after_keys = cleaned_df[list(contract.business_keys)]
-            before_dups = (
-                ~before_keys.isna().any(axis=1) & before_keys.duplicated(keep="first")
-            )
-            after_dups = (
-                ~after_keys.isna().any(axis=1) & after_keys.duplicated(keep="first")
-            )
+            before_dups = ~before_keys.isna().any(axis=1) & before_keys.duplicated(keep="first")
+            after_dups = ~after_keys.isna().any(axis=1) & after_keys.duplicated(keep="first")
             new_collisions = np.flatnonzero((after_dups & ~before_dups).to_numpy())
             if len(new_collisions) > 0:
                 issues.append(
@@ -165,9 +190,7 @@ class ContractDataCleaner(DataCleaner):
                         stage=PipelineStage.CLEANING,
                         severity=ValidationSeverity.ERROR,
                         impact=IssueImpact.BLOCKING,
-                        message=(
-                            "Whitespace normalization introduced duplicate business keys."
-                        ),
+                        message=("Whitespace normalization introduced duplicate business keys."),
                         columns=contract.business_keys,
                         affected_rows=int(len(new_collisions)),
                         row_samples=tuple(int(i) for i in new_collisions[:20]),
@@ -223,6 +246,7 @@ class ContractDataCleaner(DataCleaner):
             columns=columns,
             operation="clean_deterministic",
             implementation_version=self._implementation_version,
+            configuration_sha256=self._configuration_sha256,
             description=(
                 "Applied deterministic type, whitespace, and format normalization "
                 "without learned imputation or blind row removal."
@@ -248,15 +272,12 @@ class ContractDataCleaner(DataCleaner):
         feature: FeatureContract,
     ) -> tuple[pd.Series, list[ValidationIssue]]:
         issues: list[ValidationIssue] = []
-        result = series.copy()
+        result = normalize_text_missing(series, data_type=feature.data_type).copy()
 
         if feature.data_type in {DataType.STRING, DataType.CATEGORY}:
             non_null = result.notna()
             stripped = result.astype(str).str.strip()
             result = result.where(~non_null, stripped)
-            blank_mask = non_null & (stripped == "")
-            if bool(blank_mask.any()):
-                result = result.mask(blank_mask, pd.NA)
 
         elif feature.data_type in {
             DataType.FLOAT,
@@ -282,9 +303,7 @@ class ContractDataCleaner(DataCleaner):
                     DataType.BOOLEAN: (
                         f"Column '{feature.name}' contains invalid boolean literals."
                     ),
-                    DataType.DATE: (
-                        f"Column '{feature.name}' contains invalid date values."
-                    ),
+                    DataType.DATE: (f"Column '{feature.name}' contains invalid date values."),
                     DataType.DATETIME: (
                         f"Column '{feature.name}' contains invalid datetime values."
                     ),

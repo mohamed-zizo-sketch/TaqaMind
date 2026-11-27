@@ -13,6 +13,8 @@ import pandas as pd
 
 from taqamind.core.automl.data_access import convert_dataframe_by_contract
 from taqamind.core.contracts.dataset import DatasetContract
+from taqamind.core.ingestion.artifact_csv import read_verified_csv
+from taqamind.core.ingestion.resource_policy import CsvResourcePolicy, resolve_internal_csv_policy
 from taqamind.core.ingestion.safe_csv import SafeCsvReader
 from taqamind.core.interfaces.context import PipelineContext
 from taqamind.core.interfaces.data_access import (
@@ -82,13 +84,15 @@ class CorePredictionEngine(PredictionEngine):
         dataset_storage: DatasetArtifactStorage,
         lineage_registry: RecordLineageRegistry,
         csv_reader: SafeCsvReader | None = None,
+        resource_policy: CsvResourcePolicy | None = None,
         type_converter: ContractTypeConverter | None = None,
         identity_namespace: str = "production_record",
     ) -> None:
         self._provider = active_model_provider
         self._dataset_storage = dataset_storage
         self._lineage_registry = lineage_registry
-        self._csv_reader = csv_reader or SafeCsvReader()
+        self._resource_policy = resolve_internal_csv_policy(resource_policy)
+        self._csv_reader = (csv_reader or SafeCsvReader()).bounded_by(self._resource_policy)
         self._converter = type_converter or ContractTypeConverter()
         self._identity_namespace = identity_namespace
 
@@ -125,11 +129,13 @@ class CorePredictionEngine(PredictionEngine):
         if tuple(bundle.get("predictor_names", ())) != expected_predictors:
             raise DataAccessDeniedError("Model bundle predictor specification mismatch.")
 
-        with self._dataset_storage.open_verified(
+        raw_df = read_verified_csv(
+            storage=self._dataset_storage,
             factory_id=context.factory_id,
             reference=artifact.reference,
-        ) as ds_stream:
-            raw_df = self._csv_reader.read(ds_stream.read())
+            reader=self._csv_reader,
+            policy=self._resource_policy,
+        )
 
         df = convert_dataframe_by_contract(
             raw_df,
