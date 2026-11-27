@@ -1,4 +1,4 @@
-"""End-to-end textile pipeline orchestrator wiring Core P1.1-P1.5 and P1.6-P1.8 adapters."""
+"""End-to-end textile V1 Waste pipeline orchestrator wired directly to CorePlatformServices."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from taqamind.core.contracts import (
     TargetConfirmation,
 )
 from taqamind.core.feature_engineering import DerivedFeatureSpec, DeterministicFeatureEngineer
-from taqamind.core.ingestion import CsvDataIngestion
 from taqamind.core.interfaces import (
     AcceptancePolicy,
     ApprovedMapping,
@@ -35,6 +34,9 @@ from taqamind.core.interfaces import (
     PipelineContext,
     PredictionBatchResult,
     PredictionModelIdentity,
+    PromotionComparison,
+    RecordScope,
+    RegressionMetric,
     SplitConfiguration,
     SplitManifest,
     StageResult,
@@ -48,40 +50,9 @@ from taqamind.core.interfaces import (
     calculate_bytes_sha256,
     calculate_file_sha256,
 )
-from taqamind.core.lineage import LocalRecordLineageRegistry
-from taqamind.core.preprocessing import ContractDataCleaner
-from taqamind.core.registry import (
-    DomainRegistry,
-    LocalDatasetArtifactStorage,
-    LocalDatasetRegistry,
-    LocalModelArtifactStorage,
-)
-from taqamind.core.validation import ContractSemanticValidator
-from taqamind.domains.textile.adapters.data_access_training import (
-    LocalDevelopmentDataProvider,
-    LocalEvaluationRegistry,
-    LocalProtectedTestDataProvider,
-    LocalTrainingRegistry,
-    TextileControlledAutoMLTrainer,
-    TextileProtectedFinalEvaluator,
-)
-from taqamind.domains.textile.adapters.membership import (
-    RowLineageSummary,
-    TextileRowMembershipBuilder,
-)
-from taqamind.domains.textile.adapters.model_registry_prediction import (
-    LocalActiveModelProvider,
-    LocalModelRegistry,
-    TextilePredictionEngine,
-)
-from taqamind.domains.textile.adapters.readiness_splitting import (
-    LocalRecordUsageRegistry,
-    LocalSplitRegistry,
-    TextileDatasetSplitter,
-    TextileLeakageValidator,
-    TextileTrainingReadinessChecker,
-    hash_contract,
-)
+from taqamind.core.lineage import MembershipBuildSummary
+from taqamind.core.pipeline import CorePlatformServices
+from taqamind.core.registry import DomainRegistry
 from taqamind.domains.textile.adapters.unit_mapper import UnitAwareColumnMapperAdapter
 from taqamind.domains.textile.config import (
     build_default_acceptance_policy,
@@ -124,7 +95,7 @@ class PreparedDatasetResult:
     cleaned_result: StageResult
     engineered_result: StageResult
     engineered_artifact: DatasetArtifact
-    lineage_summary: RowLineageSummary | None = None
+    lineage_summary: MembershipBuildSummary | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,75 +114,38 @@ class TrainingWorkflowResult:
 
 
 class TextilePlatformStores:
-    """Dependency container wiring Core P1.1-P1.5 engines and P1.6-P1.8 textile adapters."""
+    """Dependency container wiring Shared CorePlatformServices + textile unit mapper."""
 
     def __init__(self, storage_dir: str | Path) -> None:
         self.root = Path(storage_dir).resolve()
-        self.dataset_storage = LocalDatasetArtifactStorage(self.root / "datasets")
-        self.model_storage = LocalModelArtifactStorage(self.root / "models")
-        self.registry_dir = self.root / "registries"
+        self.core = CorePlatformServices.create_local(self.root)
+        self.dataset_storage = self.core.dataset_storage
+        self.model_storage = self.core.model_storage
+        self.registry_dir = self.root
 
         self.domain_registry = DomainRegistry()
-        self.dataset_registry = LocalDatasetRegistry(self.registry_dir, self.dataset_storage)
-        self.lineage_registry = LocalRecordLineageRegistry(
-            self.registry_dir, dataset_registry=self.dataset_registry
-        )
-        self.split_registry = LocalSplitRegistry(self.registry_dir)
-        self.usage_registry = LocalRecordUsageRegistry(self.registry_dir)
-        self.training_registry = LocalTrainingRegistry(self.registry_dir)
-        self.evaluation_registry = LocalEvaluationRegistry(
-            self.registry_dir,
-            split_registry=self.split_registry,
-            usage_registry=self.usage_registry,
-        )
-        self.model_registry = LocalModelRegistry(
-            self.registry_dir, model_storage=self.model_storage
-        )
+        self.dataset_registry = self.core.dataset_registry
+        self.lineage_registry = self.core.lineage_registry
+        self.split_registry = self.core.split_registry
+        self.usage_registry = self.core.usage_registry
+        self.training_registry = self.core.training_registry
+        self.evaluation_registry = self.core.evaluation_registry
+        self.model_registry = self.core.model_registry
 
-        # Core P1.2-P1.5 engines + AUD-001 unit-aware mapping adapter.
-        self.ingestion = CsvDataIngestion(self.dataset_storage)
-        self.mapper = UnitAwareColumnMapperAdapter(self.dataset_storage)
-        self.validator = ContractSemanticValidator(self.dataset_storage)
-        self.cleaner = ContractDataCleaner(self.dataset_storage)
+        self.ingestion = self.core.ingestion
+        self.mapper = UnitAwareColumnMapperAdapter(self.core.dataset_storage)
+        self.validator = self.core.validator
+        self.cleaner = self.core.cleaner
 
-        # Textile P1.6-P1.8 adapters.
-        self.membership_builder = TextileRowMembershipBuilder(
-            self.dataset_storage, self.lineage_registry
-        )
-        self.readiness_checker = TextileTrainingReadinessChecker(
-            self.dataset_storage, self.lineage_registry
-        )
-        self.splitter = TextileDatasetSplitter(self.dataset_storage, self.lineage_registry)
-        self.leakage_validator = TextileLeakageValidator(
-            self.dataset_storage, self.lineage_registry, self.usage_registry
-        )
-        self.dev_provider = LocalDevelopmentDataProvider(
-            registry_dir=self.registry_dir,
-            dataset_storage=self.dataset_storage,
-            dataset_registry=self.dataset_registry,
-            lineage_registry=self.lineage_registry,
-            split_registry=self.split_registry,
-            usage_registry=self.usage_registry,
-        )
-        self.test_provider = LocalProtectedTestDataProvider(
-            registry_dir=self.registry_dir,
-            dataset_storage=self.dataset_storage,
-            dataset_registry=self.dataset_registry,
-            lineage_registry=self.lineage_registry,
-            split_registry=self.split_registry,
-            usage_registry=self.usage_registry,
-            evaluation_registry=self.evaluation_registry,
-        )
-        self.trainer = TextileControlledAutoMLTrainer(self.dev_provider, self.model_storage)
-        self.active_model_provider = LocalActiveModelProvider(
-            self.model_registry, self.model_storage
-        )
-        self.prediction_engine = TextilePredictionEngine(
-            dataset_storage=self.dataset_storage,
-            model_registry=self.model_registry,
-            active_model_provider=self.active_model_provider,
-            lineage_registry=self.lineage_registry,
-        )
+        self.membership_builder = self.core.membership_builder
+        self.readiness_checker = self.core.readiness_checker
+        self.splitter = self.core.splitter
+        self.leakage_validator = self.core.leakage_validator
+        self.dev_provider = self.core.development_data_provider
+        self.test_provider = self.core.protected_test_data_provider
+        self.trainer = self.core.trainer
+        self.active_model_provider = self.core.active_model_provider
+        self.prediction_engine = self.core.prediction_engine
 
 
 def resolve_process_spec(
@@ -404,10 +338,17 @@ class TextilePipelineService:
             factory_id=factory_id, artifact=engineered_artifact
         )
 
-        lineage_summary: RowLineageSummary | None = None
+        lineage_summary: MembershipBuildSummary | None = None
         if register_lineage:
+            rec_scope = RecordScope(
+                factory_id=factory_id,
+                domain=context.domain,
+                process=context.process,
+                dataset_id=context.dataset_id,
+                identity_namespace="production_record",
+            )
             lineage_summary = self.stores.membership_builder.build_and_register(
-                context=context,
+                scope=rec_scope,
                 artifact=engineered_artifact,
                 contract=active_contract,
             )
@@ -487,7 +428,9 @@ class TextilePipelineService:
             mode=mode,
             previous_model_version_id=previous_model_version_id,
             dataset_content_sha256=prepared.engineered_artifact.reference.content_sha256,
-            contract_sha256=hash_contract(contract),
+            contract_sha256=calculate_bytes_sha256(
+                contract.model_dump_json().encode("utf-8")
+            ),
             split_sha256=calculate_bytes_sha256(
                 manifest.model_dump_json().encode("utf-8")
             ),
@@ -509,12 +452,7 @@ class TextilePipelineService:
         selection = FrozenModelSelection.from_training_run(
             training_run=training_run, policy=a_policy
         )
-        evaluator = TextileProtectedFinalEvaluator(
-            test_provider=self.stores.test_provider,
-            evaluation_registry=self.stores.evaluation_registry,
-            model_storage=self.stores.model_storage,
-            contract=contract,
-        )
+        evaluator = self.stores.core.create_evaluator(contract)
         evaluation = evaluator.evaluate(selection=selection, manifest=manifest)
 
         scope = ModelScope(
@@ -562,7 +500,9 @@ class TextilePipelineService:
                 target_name=contract.target.feature.name,
                 target_unit=contract.target.feature.unit,
             ),
-            contract_sha256=hash_contract(contract),
+            contract_sha256=calculate_bytes_sha256(
+                contract.model_dump_json().encode("utf-8")
+            ),
             implementation_sha256=IMPLEMENTATION_SHA256,
             previous_model_version_id=previous_model_version_id,
         )
@@ -579,6 +519,21 @@ class TextilePipelineService:
                 if active_entry is None
                 else ModelTransitionAction.PROMOTION
             )
+            comparison = (
+                PromotionComparison(
+                    scope=scope,
+                    active_model_version_id=active_entry.version.model_version_id,
+                    challenger_model_version_id=entry.version.model_version_id,
+                    evaluation_dataset_revision_id=prepared.engineered_artifact.metadata.revision_id,
+                    evaluation_record_ids=manifest.test.record_ids,
+                    metric=RegressionMetric.MAE,
+                    active_mae=evaluation.baseline_mae,
+                    challenger_mae=evaluation.selected_mae,
+                    minimum_improvement_pct=a_policy.minimum_improvement_pct,
+                )
+                if active_entry is not None
+                else None
+            )
             req = ModelTransitionRequest(
                 scope=scope,
                 action=action,
@@ -588,7 +543,7 @@ class TextilePipelineService:
                 ),
                 requested_by=requested_by,
                 reason=reason,
-                comparison=None,
+                comparison=comparison,
             )
             self.stores.model_registry.transition(request=req)
             activated = True
