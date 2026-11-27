@@ -76,7 +76,10 @@ contribution and review guidelines.
 
 ## Current Status
 
-Data and Machine Learning Pipeline Development.
-
-Frontend and backend integration are deferred
-to a later development phase.
+- **Implemented & Tested:**
+  - **Shared Core (P1.1–P1.9):** Data contracts, immutable storage & registries, CSV ingestion, profiling, deterministic mapping & unit conversion, semantic validation, cleaning, feature engineering, record lineage, readiness/splitting/leakage gates, controlled AutoML, protected single-use evaluation, model registry, zero-retraining prediction, and `CorePlatformServices`.
+  - **V1 Waste Management:** `textile` (wired directly to `CorePlatformServices`), `iron_manufacturing`, and `food_beverage` (all defaulting to `TargetConfirmation.UNCONFIRMED` for production safety).
+- **V2 Extensions (Engineering-Verified on Synthetic Fixtures):**
+  - `PlatformModule.ENERGY_EFFICIENCY` implemented for `textile` and `iron_manufacturing` (wired to `CorePlatformServices`). `food_beverage` V2 Energy is pending.
+- **Deferred / Planned:**
+  - `Operations Research (PRODUCTION_OPTIMIZATION)`, `Business Analytics`, and FastAPI/UI layers are deferred to later releases.

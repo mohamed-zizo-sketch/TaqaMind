@@ -190,6 +190,27 @@ def test_unit_aware_mapper_converts_meters_to_yards_and_blocks_unknown(tmp_path:
     )
     assert bad_res.status == ExecutionStatus.FAILED
 
+    # Count-to-length conversion (e.g. Rej_and_cut_Piece in 'pieces' -> 'yd') must also fail.
+    piece_entries = tuple(
+        e.model_copy(update={"source_unit": "pieces"})
+        if e.canonical_column == "waste_length_yds"
+        else (
+            e.model_copy(update={"source_unit": e.canonical_unit})
+            if e.canonical_unit is not None and e.source_unit is None
+            else e
+        )
+        for e in proposal.entries
+    )
+    piece_approved = ApprovedMapping(
+        proposal=proposal.model_copy(update={"entries": piece_entries}),
+        approved_by="test",
+        confirmed_source_columns=tuple(e.source_column for e in piece_entries),
+    )
+    piece_res = mapper.apply_mapping(
+        context=context, artifact=artifact, contract=contract, mapping=piece_approved
+    )
+    assert piece_res.status == ExecutionStatus.FAILED
+
 
 def test_prediction_frame_succeeds_without_target_while_training_requires_target(
     tmp_path: Path,
