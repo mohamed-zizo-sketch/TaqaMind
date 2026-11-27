@@ -1,0 +1,11 @@
+{
+  "eda_summary": "Synthetic EDA placeholder for Food & Beverage V2. Contains column stats, correlations, and missing value overview for generated synthetic datasets. Real dataset stats will be added after discovery.",
+  "key_columns": ["total_electrical_energy_kwh", "machine_rated_power_kw", "planned_operating_duration_hr", "planned_utilization_pct", "ambient_temp_c"],
+  "correlations": {
+    "total_electrical_energy_kwh": {
+      "theoretical_nameplate_energy_kwh": 0.78,
+      "planned_utilization_pct": 0.45
+    }
+  },
+  "missing_values": "None in synthetic data; real datasets may have imputation policies as defined in contracts."
+}
