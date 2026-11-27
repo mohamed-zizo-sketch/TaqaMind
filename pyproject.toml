@@ -18,6 +18,13 @@ dependencies = [
 
 [project.optional-dependencies]
 
+persistence = [
+    "SQLAlchemy>=2.0,<3",
+    "psycopg[binary]>=3.2,<4",
+    "alembic>=1.14,<2",
+    "python-dotenv>=1.0,<2",
+]
+
 ml = [
     "scikit-learn>=1.6,<2",
     "xgboost>=3.0,<4",

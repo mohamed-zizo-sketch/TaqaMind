@@ -100,3 +100,15 @@ htmlcov/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+# Environment files and secrets
+.env
+.env.*
+
+# Safe environment templates
+!.env.example
+!.env.test.example
