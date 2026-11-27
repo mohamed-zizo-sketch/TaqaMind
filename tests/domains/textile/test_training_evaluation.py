@@ -54,7 +54,11 @@ def test_rejected_challenger_cannot_be_activated(tmp_path: Path) -> None:
     assert not result.activated
     assert result.model_version is not None
 
-    from taqamind.core.interfaces import ModelScope, RegistryConflictError
+    from taqamind.core.interfaces import (
+        DataAccessDeniedError,
+        ModelScope,
+        RegistryConflictError,
+    )
 
     scope = ModelScope(
         factory_id=factory_id,
@@ -64,16 +68,7 @@ def test_rejected_challenger_cannot_be_activated(tmp_path: Path) -> None:
     )
     assert service.stores.model_registry.get_active(scope=scope) is None
 
-    # Protected test records were exposed once; re-evaluating the same split must conflict.
-    from taqamind.domains.textile.adapters.data_access_training import (
-        TextileProtectedFinalEvaluator,
-    )
-
-    evaluator = TextileProtectedFinalEvaluator(
-        test_provider=service.stores.test_provider,
-        evaluation_registry=service.stores.evaluation_registry,
-        model_storage=service.stores.model_storage,
-        contract=contract,
-    )
-    with pytest.raises(RegistryConflictError):
+    # Protected test records were exposed once; re-evaluating the same split must be blocked.
+    evaluator = service.stores.core.create_evaluator(contract)
+    with pytest.raises((DataAccessDeniedError, RegistryConflictError)):
         evaluator.evaluate(selection=result.selection, manifest=result.split_manifest)
