@@ -133,13 +133,29 @@ class LocalRecordUsageRegistry(RecordUsageRegistry):
             return
         scope_dir = self._scope_dir(scope)
         with locked_path(self._scope_lock(scope)):
+            pending: list[tuple[Path, RecordUsage]] = []
             for usage in usages:
                 if usage.scope != scope:
                     raise RegistryScopeError("RecordUsage scope mismatch.")
                 path = safe_resolve(scope_dir, f"{usage.usage_id}.json")
                 if path.is_file():
+                    existing = load_json_model(path, RecordUsage)
+                    if existing != usage:
+                        raise RegistryConflictError(
+                            "Conflicting RecordUsage for existing usage_id."
+                        )
                     continue
-                atomic_write_text(path, dump_json_model(usage))
+                pending.append((path, usage))
+
+            created_paths: list[Path] = []
+            try:
+                for path, usage in pending:
+                    atomic_write_text(path, dump_json_model(usage))
+                    created_paths.append(path)
+            except BaseException:
+                for created in reversed(created_paths):
+                    created.unlink(missing_ok=True)
+                raise
 
     def get_history(
         self, *, scope: RecordScope, record_ids: tuple[UUID, ...]

@@ -16,6 +16,7 @@ from taqamind.core.interfaces.dataset_registry import (
     RegistryScopeError,
 )
 from taqamind.core.interfaces.lineage import (
+    PredictionObservationBatch,
     RecordIdentity,
     RecordIdentityStatus,
     RecordMatchResult,
@@ -67,6 +68,15 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
     def _membership_path(self, scope: RecordScope, dataset_revision_id: UUID) -> Path:
         return safe_resolve(
             self._scope_dir(scope), "memberships", f"{dataset_revision_id}.json"
+        )
+
+    def _prediction_observation_path(
+        self, scope: RecordScope, dataset_revision_id: UUID
+    ) -> Path:
+        return safe_resolve(
+            self._scope_dir(scope),
+            "prediction_observations",
+            f"{dataset_revision_id}.json",
         )
 
     def _scope_lock(self, scope: RecordScope) -> Path:
@@ -280,21 +290,25 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                         )
 
             atomic_write_text(path, identity.model_dump_json(indent=2))
-            with closing(self._connect_index(scope)) as conn:
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO identities
-                    (record_id, business_key_sha256, status, identity_json)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        str(identity.record_id),
-                        identity.business_key_sha256,
-                        identity.status.value,
-                        identity.model_dump_json(),
-                    ),
-                )
-                conn.commit()
+            try:
+                with closing(self._connect_index(scope)) as conn:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO identities
+                        (record_id, business_key_sha256, status, identity_json)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            str(identity.record_id),
+                            identity.business_key_sha256,
+                            identity.status.value,
+                            identity.model_dump_json(),
+                        ),
+                    )
+                    conn.commit()
+            except BaseException:
+                path.unlink(missing_ok=True)
+                raise
             return identity
 
     def register_version(
@@ -366,22 +380,26 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
                     raise RegistryConflictError(str(exc)) from exc
 
             atomic_write_text(version_path, version.model_dump_json(indent=2))
-            with closing(self._connect_index(scope)) as conn:
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO versions
-                    (record_version_id, record_id, version_number, content_sha256, version_json)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        str(version.record_version_id),
-                        str(version.identity.record_id),
-                        version.version_number,
-                        version.content_sha256,
-                        version.model_dump_json(),
-                    ),
-                )
-                conn.commit()
+            try:
+                with closing(self._connect_index(scope)) as conn:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO versions
+                        (record_version_id, record_id, version_number, content_sha256, version_json)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            str(version.record_version_id),
+                            str(version.identity.record_id),
+                            version.version_number,
+                            version.content_sha256,
+                            version.model_dump_json(),
+                        ),
+                    )
+                    conn.commit()
+            except BaseException:
+                version_path.unlink(missing_ok=True)
+                raise
             return version
 
     def get_identity(
@@ -492,3 +510,263 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
         if manifest.scope != scope:
             raise RegistryScopeError("Stored membership manifest scope mismatch.")
         return manifest
+
+    def register_batch(
+        self,
+        *,
+        scope: RecordScope,
+        identities: tuple[RecordIdentity, ...] = (),
+        versions: tuple[RecordVersion, ...] = (),
+        manifest: DatasetMembershipManifest | None = None,
+    ) -> None:
+        """Atomically persist identities, versions, and membership manifest with rollback."""
+        for identity in identities:
+            if identity.scope != scope:
+                raise RegistryScopeError("Record identity scope does not match requested scope.")
+        for version in versions:
+            if version.identity.scope != scope:
+                raise RegistryScopeError("Record version scope does not match requested scope.")
+        if manifest is not None and manifest.scope != scope:
+            raise RegistryScopeError("Membership manifest scope does not match requested scope.")
+
+        if manifest is not None and self._dataset_registry is not None:
+            artifact = self._dataset_registry.get(
+                factory_id=scope.factory_id,
+                dataset_revision_id=manifest.dataset_revision_id,
+            )
+            try:
+                manifest.validate_artifact(artifact)
+            except ValueError as exc:
+                raise RegistryConflictError(str(exc)) from exc
+
+        with locked_path(self._scope_lock(scope)):
+            created_paths: list[Path] = []
+            staged_identities: dict[UUID, RecordIdentity] = {}
+            staged_biz_keys: set[str] = set()
+            staged_versions: dict[UUID, RecordVersion] = {}
+            staged_record_versions: dict[UUID, list[RecordVersion]] = {}
+
+            with closing(self._connect_index(scope)) as conn:
+                try:
+                    for identity in identities:
+                        id_path = self._identity_path(scope, identity.record_id)
+                        if id_path.is_file():
+                            existing = load_json_model(id_path, RecordIdentity)
+                            if existing != identity:
+                                raise RegistryConflictError(
+                                    "Conflicting metadata for existing record identity."
+                                )
+                            staged_identities[identity.record_id] = existing
+                            continue
+                        if identity.record_id in staged_identities:
+                            if staged_identities[identity.record_id] != identity:
+                                raise RegistryConflictError(
+                                    "Conflicting record identity within batch."
+                                )
+                            continue
+                        if (
+                            identity.eligible_for_automatic_matching
+                            and identity.business_key_sha256 is not None
+                        ):
+                            if identity.business_key_sha256 in staged_biz_keys:
+                                raise RegistryConflictError(
+                                    "Business key fingerprint already belongs "
+                                    "to a confirmed identity."
+                                )
+                            for row in conn.execute(
+                                "SELECT identity_json FROM identities "
+                                "WHERE business_key_sha256 = ?",
+                                (identity.business_key_sha256,),
+                            ).fetchall():
+                                existing = RecordIdentity.model_validate_json(row[0])
+                                if existing.eligible_for_automatic_matching:
+                                    raise RegistryConflictError(
+                                        "Business key fingerprint already belongs "
+                                        "to a confirmed identity."
+                                    )
+                            staged_biz_keys.add(identity.business_key_sha256)
+
+                        atomic_write_text(id_path, identity.model_dump_json(indent=2))
+                        created_paths.append(id_path)
+                        staged_identities[identity.record_id] = identity
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO identities
+                            (record_id, business_key_sha256, status, identity_json)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (
+                                str(identity.record_id),
+                                identity.business_key_sha256,
+                                identity.status.value,
+                                identity.model_dump_json(),
+                            ),
+                        )
+
+                    for version in versions:
+                        rec_id = version.identity.record_id
+                        reg_id = staged_identities.get(rec_id)
+                        if reg_id is None:
+                            reg_id = self.get_identity(scope=scope, record_id=rec_id)
+                        if reg_id != version.identity:
+                            raise RegistryConflictError(
+                                "Record version identity does not match registered identity."
+                            )
+
+                        ver_path = self._version_path(scope, version.record_version_id)
+                        if ver_path.is_file():
+                            existing_ver = load_json_model(ver_path, RecordVersion)
+                            if existing_ver != version:
+                                raise RegistryConflictError(
+                                    "Conflicting metadata for existing record_version_id."
+                                )
+                            staged_versions[version.record_version_id] = existing_ver
+                            continue
+
+                        prior_rows = conn.execute(
+                            """
+                            SELECT version_json FROM versions
+                            WHERE record_id = ?
+                            ORDER BY version_number ASC
+                            """,
+                            (str(rec_id),),
+                        ).fetchall()
+                        prior_versions = [
+                            RecordVersion.model_validate_json(r[0]) for r in prior_rows
+                        ]
+                        if version.version_number == 1:
+                            if prior_versions:
+                                latest = prior_versions[-1]
+                                if (
+                                    latest.content_sha256 == version.content_sha256
+                                    and latest.content_fingerprint_version
+                                    == version.content_fingerprint_version
+                                ):
+                                    staged_versions[latest.record_version_id] = latest
+                                    continue
+                                raise RegistryConflictError(
+                                    "Initial version already exists with different content."
+                                )
+                        else:
+                            if not prior_versions:
+                                raise RegistryNotFoundError(
+                                    "Cannot register updated version without an "
+                                    "existing initial version."
+                                )
+                            latest = prior_versions[-1]
+                            if (
+                                latest.content_sha256 == version.content_sha256
+                                and latest.content_fingerprint_version
+                                == version.content_fingerprint_version
+                            ):
+                                staged_versions[latest.record_version_id] = latest
+                                continue
+                            if version.previous_version_id != latest.record_version_id:
+                                raise RegistryConflictError(
+                                    "Updated record version must extend the latest "
+                                    "registered version."
+                                )
+                            try:
+                                version.validate_previous(latest)
+                            except ValueError as exc:
+                                raise RegistryConflictError(str(exc)) from exc
+
+                        atomic_write_text(ver_path, version.model_dump_json(indent=2))
+                        created_paths.append(ver_path)
+                        staged_versions[version.record_version_id] = version
+                        staged_record_versions.setdefault(rec_id, []).append(version)
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO versions
+                            (record_version_id, record_id, version_number,
+                             content_sha256, version_json)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                str(version.record_version_id),
+                                str(rec_id),
+                                version.version_number,
+                                version.content_sha256,
+                                version.model_dump_json(),
+                            ),
+                        )
+
+                    if manifest is not None:
+                        for membership in manifest.memberships:
+                            ver = staged_versions.get(membership.record_version_id)
+                            if ver is None:
+                                ver = self.get_version(
+                                    scope=scope,
+                                    record_version_id=membership.record_version_id,
+                                )
+                            try:
+                                membership.validate_record_version(ver)
+                            except ValueError as exc:
+                                raise RegistryConflictError(str(exc)) from exc
+
+                        mem_path = self._membership_path(
+                            scope, manifest.dataset_revision_id
+                        )
+                        if mem_path.is_file():
+                            existing_mem = load_json_model(
+                                mem_path, DatasetMembershipManifest
+                            )
+                            if existing_mem != manifest:
+                                raise RegistryConflictError(
+                                    "Conflicting membership manifest for existing "
+                                    "dataset revision."
+                                )
+                        else:
+                            atomic_write_text(
+                                mem_path, manifest.model_dump_json(indent=2)
+                            )
+                            created_paths.append(mem_path)
+
+                    conn.commit()
+                except BaseException:
+                    conn.rollback()
+                    for created in reversed(created_paths):
+                        created.unlink(missing_ok=True)
+                    raise
+
+    def register_prediction_observations(
+        self,
+        *,
+        scope: RecordScope,
+        batch: PredictionObservationBatch,
+    ) -> PredictionObservationBatch:
+        """Persist immutable PredictionObservationBatch isolated from historical lineage."""
+        if batch.scope != scope:
+            raise RegistryScopeError(
+                "PredictionObservationBatch scope does not match requested scope."
+            )
+        with locked_path(self._scope_lock(scope)):
+            path = self._prediction_observation_path(
+                scope, batch.prediction_dataset_revision_id
+            )
+            if path.is_file():
+                existing = load_json_model(path, PredictionObservationBatch)
+                if existing == batch:
+                    return existing
+                raise RegistryConflictError(
+                    "Conflicting prediction observation batch for existing dataset revision."
+                )
+            atomic_write_text(path, batch.model_dump_json(indent=2))
+            return batch
+
+    def get_prediction_observations(
+        self,
+        *,
+        scope: RecordScope,
+        dataset_revision_id: UUID,
+    ) -> PredictionObservationBatch:
+        """Load a previously persisted PredictionObservationBatch."""
+        path = self._prediction_observation_path(scope, dataset_revision_id)
+        if not path.is_file():
+            raise RegistryNotFoundError(
+                f"Prediction observations for '{dataset_revision_id}' not found in scope."
+            )
+        batch = load_json_model(path, PredictionObservationBatch)
+        if batch.scope != scope:
+            raise RegistryScopeError("Stored prediction observation batch scope mismatch.")
+        return batch

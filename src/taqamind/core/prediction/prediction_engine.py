@@ -23,7 +23,10 @@ from taqamind.core.interfaces.data_access import (
     validate_active_model_access,
 )
 from taqamind.core.interfaces.dataset import DatasetArtifact
-from taqamind.core.interfaces.dataset_registry import RecordLineageRegistry
+from taqamind.core.interfaces.dataset_registry import (
+    RecordLineageRegistry,
+    RegistryNotFoundError,
+)
 from taqamind.core.interfaces.lineage import RecordScope
 from taqamind.core.interfaces.ml import PredictionEngine
 from taqamind.core.interfaces.model_registry import (
@@ -158,12 +161,26 @@ class CorePredictionEngine(PredictionEngine):
             dataset_id=context.dataset_id,
             identity_namespace=self._identity_namespace,
         )
-        obs_batch = self._membership_builder.resolve_prediction_observations(
-            scope=rec_scope,
-            artifact=artifact,
-            contract=contract,
-            context=context,
-        )
+        if hasattr(self._lineage_registry, "get_prediction_observations"):
+            try:
+                obs_batch = self._lineage_registry.get_prediction_observations(
+                    scope=rec_scope,
+                    dataset_revision_id=artifact.metadata.revision_id,
+                )
+            except RegistryNotFoundError:
+                obs_batch = self._membership_builder.resolve_prediction_observations(
+                    scope=rec_scope,
+                    artifact=artifact,
+                    contract=contract,
+                    context=context,
+                )
+        else:
+            obs_batch = self._membership_builder.resolve_prediction_observations(
+                scope=rec_scope,
+                artifact=artifact,
+                contract=contract,
+                context=context,
+            )
         if len(obs_batch.observations) != len(df):
             raise DataAccessDeniedError(
                 "Prediction dataset row count does not match resolved observations."

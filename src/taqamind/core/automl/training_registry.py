@@ -105,13 +105,38 @@ class LocalTrainingRegistry(TrainingRegistry):
             training_run_id=result.training_run_id,
         )
         reuse_path = self._reuse_path(factory_id=factory_id, fingerprint=key.fingerprint)
-        with locked_path(result_path.with_suffix(".lock")):
-            atomic_write_text(result_path, dump_json_model(result))
-            reuse_payload = json.dumps(
-                {"training_run_id": str(result.training_run_id), "fingerprint": key.fingerprint},
-                indent=2,
-            )
-            atomic_write_text(reuse_path, reuse_payload)
+        factory_lock = safe_resolve(self._root, f"{factory_id}/.training_registry.lock")
+        with locked_path(factory_lock):
+            created_result = False
+            if result_path.exists():
+                existing = load_json_model(result_path, TrainingRunResult)
+                if existing != result:
+                    raise RegistryConflictError(
+                        "Conflicting training result for existing training_run_id."
+                    )
+            if reuse_path.exists():
+                existing_reuse = json.loads(reuse_path.read_text(encoding="utf-8"))
+                if UUID(existing_reuse["training_run_id"]) != result.training_run_id:
+                    raise RegistryConflictError(
+                        "TrainingReuseKey already bound to a different training_run_id."
+                    )
+            if not result_path.exists():
+                atomic_write_text(result_path, dump_json_model(result))
+                created_result = True
+            if not reuse_path.exists():
+                reuse_payload = json.dumps(
+                    {
+                        "training_run_id": str(result.training_run_id),
+                        "fingerprint": key.fingerprint,
+                    },
+                    indent=2,
+                )
+                try:
+                    atomic_write_text(reuse_path, reuse_payload)
+                except BaseException:
+                    if created_result:
+                        result_path.unlink(missing_ok=True)
+                    raise
 
     def get_result(
         self,
@@ -164,8 +189,14 @@ class LocalEvaluationRegistry(EvaluationRegistry):
             raise RegistryScopeError("Selection factory scope mismatch.")
         path = self._selection_path(factory_id=factory_id, selection_id=selection.selection_id)
         with locked_path(path.with_suffix(".lock")):
-            if not path.exists():
-                atomic_write_text(path, dump_json_model(selection))
+            if path.exists():
+                existing = load_json_model(path, FrozenModelSelection)
+                if existing != selection:
+                    raise RegistryConflictError(
+                        "Conflicting FrozenModelSelection for existing selection_id."
+                    )
+                return
+            atomic_write_text(path, dump_json_model(selection))
 
     def reserve_test_access(
         self,
@@ -275,6 +306,13 @@ class LocalEvaluationRegistry(EvaluationRegistry):
             evaluation_id=evaluation.evaluation_id,
         )
         with locked_path(eval_path.with_suffix(".lock")):
+            if eval_path.exists():
+                existing = load_json_model(eval_path, FinalEvaluationResult)
+                if existing != evaluation:
+                    raise RegistryConflictError(
+                        "Conflicting FinalEvaluationResult for existing evaluation_id."
+                    )
+                return
             atomic_write_text(eval_path, dump_json_model(evaluation))
 
     def get_evaluation(

@@ -352,6 +352,8 @@ class RecordMembershipBuilder:
 
         # Registration pass: all rows validated and preflight-checked.
         memberships: list[DatasetRecordMembership] = []
+        new_identities: list[RecordIdentity] = []
+        new_versions: list[RecordVersion] = []
         counts = {
             "new": 0,
             "exact": 0,
@@ -364,23 +366,19 @@ class RecordMembershipBuilder:
             match = item.match
             if match.status == RecordMatchStatus.NEW_RECORD:
                 counts["new"] += 1
-                identity = self._lineage.register_identity(
+                identity = RecordIdentity(
                     scope=scope,
-                    identity=RecordIdentity(
-                        scope=scope,
-                        business_key_sha256=item.biz_sha_v2,
-                        status=RecordIdentityStatus.CONFIRMED,
-                    ),
+                    business_key_sha256=item.biz_sha_v2,
+                    status=RecordIdentityStatus.CONFIRMED,
                 )
-                version = self._lineage.register_version(
-                    scope=scope,
-                    version=RecordVersion(
-                        identity=identity,
-                        content_sha256=item.content_sha,
-                        content_fingerprint_version=content_fingerprint_version,
-                        source_dataset_revision_id=artifact.metadata.revision_id,
-                    ),
+                version = RecordVersion(
+                    identity=identity,
+                    content_sha256=item.content_sha,
+                    content_fingerprint_version=content_fingerprint_version,
+                    source_dataset_revision_id=artifact.metadata.revision_id,
                 )
+                new_identities.append(identity)
+                new_versions.append(version)
             elif match.status == RecordMatchStatus.EXACT_MATCH:
                 counts["exact"] += 1
                 assert match.matched_version is not None
@@ -391,38 +389,32 @@ class RecordMembershipBuilder:
                 assert match.matched_version is not None
                 prev = match.matched_version
                 identity = prev.identity
-                version = self._lineage.register_version(
-                    scope=scope,
-                    version=RecordVersion(
-                        identity=identity,
-                        content_sha256=item.content_sha,
-                        content_fingerprint_version=content_fingerprint_version,
-                        source_dataset_revision_id=artifact.metadata.revision_id,
-                        version_number=prev.version_number + 1,
-                        previous_version_id=prev.record_version_id,
-                        revision_reason=update_reason or "Confirmed industrial record correction.",
-                        confirmed_by=confirm_updates_by,
-                    ),
+                version = RecordVersion(
+                    identity=identity,
+                    content_sha256=item.content_sha,
+                    content_fingerprint_version=content_fingerprint_version,
+                    source_dataset_revision_id=artifact.metadata.revision_id,
+                    version_number=prev.version_number + 1,
+                    previous_version_id=prev.record_version_id,
+                    revision_reason=update_reason or "Confirmed industrial record correction.",
+                    confirmed_by=confirm_updates_by,
                 )
+                new_versions.append(version)
             else:
                 counts["unverified"] += 1
-                identity = self._lineage.register_identity(
+                identity = RecordIdentity(
                     scope=scope,
-                    identity=RecordIdentity(
-                        scope=scope,
-                        business_key_sha256=item.biz_sha_v2,
-                        status=RecordIdentityStatus.UNVERIFIED,
-                    ),
+                    business_key_sha256=item.biz_sha_v2,
+                    status=RecordIdentityStatus.UNVERIFIED,
                 )
-                version = self._lineage.register_version(
-                    scope=scope,
-                    version=RecordVersion(
-                        identity=identity,
-                        content_sha256=item.content_sha,
-                        content_fingerprint_version=content_fingerprint_version,
-                        source_dataset_revision_id=artifact.metadata.revision_id,
-                    ),
+                version = RecordVersion(
+                    identity=identity,
+                    content_sha256=item.content_sha,
+                    content_fingerprint_version=content_fingerprint_version,
+                    source_dataset_revision_id=artifact.metadata.revision_id,
                 )
+                new_identities.append(identity)
+                new_versions.append(version)
 
             memberships.append(
                 DatasetRecordMembership(
@@ -439,7 +431,19 @@ class RecordMembershipBuilder:
             scope=scope,
             memberships=tuple(memberships),
         )
-        self._lineage.register_membership(scope=scope, manifest=manifest)
+        if hasattr(self._lineage, "register_batch"):
+            self._lineage.register_batch(
+                scope=scope,
+                identities=tuple(new_identities),
+                versions=tuple(new_versions),
+                manifest=manifest,
+            )
+        else:
+            for identity in new_identities:
+                self._lineage.register_identity(scope=scope, identity=identity)
+            for version in new_versions:
+                self._lineage.register_version(scope=scope, version=version)
+            self._lineage.register_membership(scope=scope, manifest=manifest)
         return MembershipBuildSummary(
             manifest=manifest,
             new_records=counts["new"],
@@ -627,8 +631,11 @@ class RecordMembershipBuilder:
                     )
                 )
 
-        return PredictionObservationBatch(
+        batch = PredictionObservationBatch(
             scope=scope,
             prediction_dataset_revision_id=artifact.metadata.revision_id,
             observations=tuple(observations),
         )
+        if hasattr(self._lineage, "register_prediction_observations"):
+            return self._lineage.register_prediction_observations(scope=scope, batch=batch)
+        return batch

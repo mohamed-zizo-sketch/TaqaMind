@@ -169,17 +169,19 @@ class LocalModelRegistry(ModelRegistry):
                 pass
 
             now = datetime.now(UTC)
+            active_path: Path | None = None
+            active_backup: str | None = None
+            target_backup = target_path.read_text(encoding="utf-8")
             if active is not None:
+                active_path = self._version_path(scope, active.version.model_version_id)
+                active_backup = active_path.read_text(encoding="utf-8")
                 archived = ModelRegistryEntry(
                     version=active.version,
                     status=ModelStatus.ARCHIVED,
                     evaluation_id=active.evaluation_id,
                     updated_at=max(now, active.updated_at),
                 )
-                atomic_write_text(
-                    self._version_path(scope, active.version.model_version_id),
-                    dump_json_model(archived),
-                )
+                atomic_write_text(active_path, dump_json_model(archived))
 
             activated = ModelRegistryEntry(
                 version=target.version,
@@ -187,22 +189,28 @@ class LocalModelRegistry(ModelRegistry):
                 evaluation_id=target.evaluation_id,
                 updated_at=max(now, target.updated_at),
             )
-            atomic_write_text(target_path, dump_json_model(activated))
+            try:
+                atomic_write_text(target_path, dump_json_model(activated))
 
-            audit_path = self._audit_log_path(scope)
-            audit_path.parent.mkdir(parents=True, exist_ok=True)
-            audit_record = {
-                "action": request.action.value,
-                "target_model_version_id": str(request.target_model_version_id),
-                "previous_active_model_version_id": (
-                    str(active.version.model_version_id) if active is not None else None
-                ),
-                "requested_by": request.requested_by,
-                "reason": request.reason,
-                "timestamp": now.isoformat(),
-            }
-            with audit_path.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(audit_record) + "\n")
+                audit_path = self._audit_log_path(scope)
+                audit_path.parent.mkdir(parents=True, exist_ok=True)
+                audit_record = {
+                    "action": request.action.value,
+                    "target_model_version_id": str(request.target_model_version_id),
+                    "previous_active_model_version_id": (
+                        str(active.version.model_version_id) if active is not None else None
+                    ),
+                    "requested_by": request.requested_by,
+                    "reason": request.reason,
+                    "timestamp": now.isoformat(),
+                }
+                with audit_path.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(audit_record) + "\n")
+            except BaseException:
+                atomic_write_text(target_path, target_backup)
+                if active_path is not None and active_backup is not None:
+                    atomic_write_text(active_path, active_backup)
+                raise
 
             return activated
 
