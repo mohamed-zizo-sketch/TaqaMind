@@ -113,8 +113,9 @@ def test_train_reload_fresh_process_and_no_retraining_prediction(
     # Verify active model checksum and version remained untouched
     info = fresh_pipe.get_model_info(factory_id=FACTORY_A, process_id="bakery")
     assert info["active_model_version_id"] == str(active_id)
-    loaded_entry = fresh_pipe.model_registry.get_entry(
-        train_res.registry_entry.version.scope, active_id
+    loaded_entry = fresh_pipe.model_registry.get(
+        scope=train_res.registry_entry.version.scope,
+        model_version_id=active_id,
     )
     assert loaded_entry.version.artifact.content_sha256 == active_sha
 
@@ -163,7 +164,7 @@ def test_corrupted_model_artifact_rejected(
     assert res.registry_entry is not None
     bundle_path = (
         tmp_pipeline.storage_config.root_dir
-        / "blobs"
+        / "model_storage"
         / res.registry_entry.version.artifact.storage_key
     )
     bundle_path.write_bytes(b"corrupted_bytes")
@@ -239,7 +240,9 @@ def test_feature_order_independence_and_retraining_reuse(
     assert r2.registry_entry.status == ModelStatus.VALIDATED
     # Original active model v1 remains ACTIVE until explicit promotion
     assert (
-        tmp_pipeline.model_registry.get_entry(r1.registry_entry.version.scope, v1_id).status
+        tmp_pipeline.model_registry.get(
+            scope=r1.registry_entry.version.scope, model_version_id=v1_id
+        ).status
         == ModelStatus.ACTIVE
     )
 
