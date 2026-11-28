@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from io import BytesIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -169,18 +168,27 @@ class TextileEnergyPipelineService:
             model_version_id=model_version_id,
             created_at=created_at or datetime.now(UTC),
         )
-        raw_bytes = Path(csv_path).read_bytes()
+        csv_path_obj = Path(csv_path)
+        if not csv_path_obj.is_file():
+            raise FileNotFoundError(f"Energy CSV not found: '{csv_path_obj}'.")
+        size_bytes = csv_path_obj.stat().st_size
+        max_csv_bytes = 100 * 1024 * 1024
+        if size_bytes <= 0 or size_bytes > max_csv_bytes:
+            raise ValueError(
+                f"Energy CSV size ({size_bytes} bytes) must be between 1 and {max_csv_bytes} bytes."
+            )
         ref = ArtifactReference(
             factory_id=factory_id,
             format=ArtifactFormat.CSV,
-            content_sha256=calculate_file_sha256(csv_path),
-            size_bytes=len(raw_bytes),
+            content_sha256=calculate_file_sha256(csv_path_obj),
+            size_bytes=size_bytes,
         )
-        self.core.dataset_storage.put(
-            factory_id=factory_id,
-            reference=ref,
-            stream=BytesIO(raw_bytes),
-        )
+        with csv_path_obj.open("rb") as stream:
+            self.core.dataset_storage.put(
+                factory_id=factory_id,
+                reference=ref,
+                stream=stream,
+            )
         raw = DatasetArtifact(
             metadata=DatasetMetadata(
                 revision_id=rev_id,
