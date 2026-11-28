@@ -128,11 +128,19 @@ def _ingest_through_engineered(
         dataset_id=ctx.dataset_id,
         identity_namespace="production_record",
     )
-    services.membership_builder.build_and_register(
-        scope=scope,
-        artifact=engineered,
-        contract=contract,
-    )
+    if ctx.purpose == DatasetPurpose.PREDICTION:
+        services.membership_builder.resolve_prediction_observations(
+            scope=scope,
+            artifact=engineered,
+            contract=contract,
+            context=ctx,
+        )
+    else:
+        services.membership_builder.build_and_register(
+            scope=scope,
+            artifact=engineered,
+            contract=contract,
+        )
     return engineered
 
 

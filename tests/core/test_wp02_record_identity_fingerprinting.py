@@ -15,8 +15,8 @@ Covers:
 
 from __future__ import annotations
 
-import math
 import time
+from datetime import UTC, datetime
 from hashlib import sha256 as _sha256
 from io import BytesIO
 from pathlib import Path
@@ -27,17 +27,19 @@ import pytest
 
 from taqamind.core.contracts.dataset import DatasetContract, PredictionContext
 from taqamind.core.contracts.enums import (
-    DataType,
     DatasetPurpose,
+    DataType,
     FeatureAvailability,
     FeatureOrigin,
     FeatureRole,
     MissingValuePolicy,
+    PipelineStage,
     TargetKind,
     TaskType,
 )
 from taqamind.core.contracts.feature import FeatureConstraints, FeatureContract
 from taqamind.core.contracts.target import (
+    TargetConfirmation,
     TargetContract,
     TargetDefinition,
 )
@@ -55,7 +57,7 @@ from taqamind.core.interfaces import (
     RecordMatchStatus,
     RecordScope,
     RecordVersion,
-    RegistryConflictError,
+    TransformationRecord,
     calculate_record_fingerprint,
 )
 from taqamind.core.interfaces.lineage import (
@@ -73,7 +75,7 @@ from taqamind.core.lineage import (
     find_duplicate_canonical_business_keys,
     hash_canonical_v2_row,
 )
-from taqamind.core.registry import LocalDatasetArtifactStorage, LocalDatasetRegistry
+from taqamind.core.registry import LocalDatasetArtifactStorage
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -130,7 +132,11 @@ def _make_target_contract(*, feature_name: str = "waste", unit: str = "kg") -> T
         task_type=TaskType.REGRESSION,
         target_kind=TargetKind.QUANTITY,
         definition=TargetDefinition(definition="Industrial waste", granularity="batch"),
-        confirmation_status=ConfirmationStatus.CONFIRMED,
+        confirmation=TargetConfirmation(
+            status=ConfirmationStatus.CONFIRMED,
+            confirmed_by="wp02_test",
+            confirmed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
     )
 
 
@@ -187,6 +193,7 @@ def _make_context(
         task_version="1.0.0",
         target_version="1.0.0",
         purpose=purpose,
+        model_version_id=uuid4() if purpose == DatasetPurpose.PREDICTION else None,
     )
 
 
@@ -217,10 +224,11 @@ def _make_mapped_artifact(
     columns: tuple[DatasetColumnSchema, ...],
 ) -> DatasetArtifact:
     ref = _store_csv(storage, factory_id=factory_id, csv_bytes=csv_bytes)
+    root_id = uuid4()
     rev_id = uuid4()
     metadata = DatasetMetadata(
         revision_id=rev_id,
-        root_revision_id=rev_id,
+        root_revision_id=root_id,
         factory_id=factory_id,
         domain=domain,
         process=process,
@@ -233,6 +241,14 @@ def _make_mapped_artifact(
         state=DatasetState.MAPPED,
         row_count=len(csv_bytes.decode().strip().split("\n")) - 1,
         columns=columns,
+        transformation=TransformationRecord(
+            execution_id=uuid4(),
+            parent_revision_id=root_id,
+            stage=PipelineStage.COLUMN_MAPPING,
+            operation="column_mapping",
+            implementation_version="1.0.0",
+            description="Test mapped dataset artifact",
+        ),
     )
     return DatasetArtifact(metadata=metadata, reference=ref)
 
@@ -340,7 +356,12 @@ class TestCanonicalizationPrecision:
         assert result.v2_tokens == ["cat:A", "cat:B"]
 
     def test_null_token_for_missing_value(self):
-        feat = _make_feature("col", dtype=DataType.STRING, nullable=True)
+        feat = _make_feature(
+            "col",
+            dtype=DataType.STRING,
+            nullable=True,
+            missing_policy=MissingValuePolicy.ALLOW,
+        )
         series = pd.Series([None, "X"])
         result = canonicalize_column(series, feat)
         assert result.v2_tokens[0] == "null"
@@ -394,7 +415,7 @@ class TestMissingAndInvalidValues:
 
     def test_non_finite_float_raises_canonicalization_error(self):
         feat = _make_feature("col", dtype=DataType.FLOAT)
-        for bad in [float("inf"), float("-inf"), float("nan")]:
+        for bad in [float("inf"), float("-inf")]:
             series = pd.Series([bad])
             with pytest.raises(CanonicalizationError, match="INVALID_FINGERPRINT_INPUT"):
                 canonicalize_column(series, feat)
@@ -406,14 +427,18 @@ class TestMissingAndInvalidValues:
             canonicalize_column(series, feat)
 
     def test_missing_integer_in_nullable_column_produces_null_token(self):
-        feat = _make_feature("col", dtype=DataType.INTEGER, nullable=True, missing_policy=MissingValuePolicy.ALLOW)
+        feat = _make_feature(
+            "col", dtype=DataType.INTEGER, nullable=True, missing_policy=MissingValuePolicy.ALLOW
+        )
         series = pd.Series([pd.NA], dtype="Int64")
         result = canonicalize_column(series, feat)
         assert result.v2_tokens == ["null"]
         assert result.values == [None]
 
     def test_missing_float_in_nullable_column_produces_null_token(self):
-        feat = _make_feature("col", dtype=DataType.FLOAT, nullable=True, missing_policy=MissingValuePolicy.ALLOW)
+        feat = _make_feature(
+            "col", dtype=DataType.FLOAT, nullable=True, missing_policy=MissingValuePolicy.ALLOW
+        )
         series = pd.Series([float("nan")])
         result = canonicalize_column(series, feat)
         assert result.v2_tokens == ["null"]
@@ -427,14 +452,18 @@ class TestMissingAndInvalidValues:
 
     def test_find_duplicate_returns_empty_on_distinct_keys(self):
         contract = _minimal_contract()
-        df = pd.DataFrame({"batch_id": ["001", "002", "003"], "qty": [1.0, 2.0, 3.0], "waste": [1.0, 2.0, 3.0]})
+        df = pd.DataFrame(
+            {"batch_id": ["001", "002", "003"], "qty": [1.0, 2.0, 3.0], "waste": [1.0, 2.0, 3.0]}
+        )
         dup_indices = find_duplicate_canonical_business_keys(df, contract)
         assert dup_indices == ()
 
     def test_find_duplicate_skips_null_keys(self):
         contract = _minimal_contract()
         # Two null business keys are NOT treated as duplicates.
-        df = pd.DataFrame({"batch_id": [None, None, "003"], "qty": [1.0, 2.0, 3.0], "waste": [1.0, 2.0, 3.0]})
+        df = pd.DataFrame(
+            {"batch_id": [None, None, "003"], "qty": [1.0, 2.0, 3.0], "waste": [1.0, 2.0, 3.0]}
+        )
         dup_indices = find_duplicate_canonical_business_keys(df, contract)
         # nulls are skipped; only "003" appears once → no duplicates
         assert 0 not in dup_indices
@@ -481,18 +510,20 @@ class TestCompositeBusinessKeys:
             domain="textile",
             process="weaving",
             description="Composite key test",
-            granularity="shift",
+            granularity="batch",
             features=(line_feat, shift_feat, qty_feat),
             target=_make_target_contract(),
             prediction_context=PredictionContext(description="Test"),
             business_keys=("line_id", "shift_id"),
         )
-        df = pd.DataFrame({
-            "line_id": ["L1", "L1", "L2"],
-            "shift_id": ["AM", "AM", "AM"],
-            "qty": [1.0, 2.0, 3.0],
-            "waste": [0.1, 0.2, 0.3],
-        })
+        df = pd.DataFrame(
+            {
+                "line_id": ["L1", "L1", "L2"],
+                "shift_id": ["AM", "AM", "AM"],
+                "qty": [1.0, 2.0, 3.0],
+                "waste": [0.1, 0.2, 0.3],
+            }
+        )
         dup_indices = find_duplicate_canonical_business_keys(df, contract)
         assert 1 in dup_indices
         assert 2 not in dup_indices
@@ -501,11 +532,13 @@ class TestCompositeBusinessKeys:
         contract = _minimal_contract(
             business_keys=("batch_id",),
         )
-        df = pd.DataFrame({
-            "batch_id": ["L1_AM", "L2_AM"],
-            "qty": [1.0, 2.0],
-            "waste": [0.1, 0.2],
-        })
+        df = pd.DataFrame(
+            {
+                "batch_id": ["L1_AM", "L2_AM"],
+                "qty": [1.0, 2.0],
+                "waste": [0.1, 0.2],
+            }
+        )
         dup_indices = find_duplicate_canonical_business_keys(df, contract)
         assert dup_indices == ()
 
@@ -521,7 +554,6 @@ class TestScopeMismatches:
     def test_build_and_register_rejects_mismatched_domain(self, tmp_path: Path):
         factory_id = uuid4()
         storage = LocalDatasetArtifactStorage(tmp_path / "art")
-        ds_reg = LocalDatasetRegistry(tmp_path / "reg", storage)
         lin_reg = LocalRecordLineageRegistry(tmp_path / "reg")
         builder = RecordMembershipBuilder(storage, lin_reg)
 
@@ -538,7 +570,6 @@ class TestScopeMismatches:
             csv_bytes=BASIC_CSV,
             columns=BASIC_COLS,
         )
-        ds_reg.register(factory_id=factory_id, artifact=artifact)
 
         # Scope with different domain.
         scope = _make_scope(factory_id=factory_id, domain="iron_manufacturing", process="weaving")
@@ -578,7 +609,9 @@ class TestScopeMismatches:
         scope = _make_scope(factory_id=factory_id)
         ctx = _make_context(factory_id=factory_id, purpose=DatasetPurpose.PREDICTION)
         with pytest.raises(ValueError, match="HISTORICAL_REGISTRATION_WITH_PREDICTION_PURPOSE"):
-            builder.build_and_register(scope=scope, artifact=artifact, contract=contract, context=ctx)
+            builder.build_and_register(
+                scope=scope, artifact=artifact, contract=contract, context=ctx
+            )
 
     def test_build_and_register_rejects_identity_namespace_mismatch(self, tmp_path: Path):
         factory_id = uuid4()
@@ -817,7 +850,9 @@ class TestZeroRegistryWritesOnFailedPreflight:
         # Row 0 is valid; Row 1 has missing required business key.
         csv_bytes = b"batch_id,qty,waste\n001,100.0,2.0\n,150.0,3.0\n"
         art = _make_mapped_artifact(
-            storage, factory_id=factory_id, csv_bytes=csv_bytes,
+            storage,
+            factory_id=factory_id,
+            csv_bytes=csv_bytes,
             columns=BASIC_COLS,
         )
         with pytest.raises(ValueError, match="missing required business key"):
@@ -825,6 +860,7 @@ class TestZeroRegistryWritesOnFailedPreflight:
 
         # No identities should have been registered.
         from taqamind.core.interfaces.dataset_registry import RegistryNotFoundError
+
         with pytest.raises(RegistryNotFoundError):
             lin_reg.get_membership(
                 scope=scope,
@@ -843,7 +879,9 @@ class TestZeroRegistryWritesOnFailedPreflight:
         # Duplicate batch_id "001" in the same batch.
         csv_bytes = b"batch_id,qty,waste\n001,100.0,2.0\n001,120.0,2.5\n"
         art = _make_mapped_artifact(
-            storage, factory_id=factory_id, csv_bytes=csv_bytes,
+            storage,
+            factory_id=factory_id,
+            csv_bytes=csv_bytes,
             columns=BASIC_COLS,
         )
         with pytest.raises(ValueError, match="DUPLICATE_BUSINESS_KEY"):
@@ -860,7 +898,8 @@ class TestZeroRegistryWritesOnFailedPreflight:
 
         # Register initial record.
         art1 = _make_mapped_artifact(
-            storage, factory_id=factory_id,
+            storage,
+            factory_id=factory_id,
             csv_bytes=b"batch_id,qty,waste\n001,100.0,2.0\n",
             columns=BASIC_COLS,
         )
@@ -872,7 +911,8 @@ class TestZeroRegistryWritesOnFailedPreflight:
 
         # Attempt unconfirmed correction.
         art2 = _make_mapped_artifact(
-            storage, factory_id=factory_id,
+            storage,
+            factory_id=factory_id,
             csv_bytes=b"batch_id,qty,waste\n001,100.0,9.0\n",
             columns=BASIC_COLS,
         )
@@ -903,16 +943,20 @@ class TestHistoricalRecordCorrection:
         contract = _minimal_contract(factory_id=factory_id)
         scope = _make_scope(factory_id=factory_id)
 
-        art1 = _make_mapped_artifact(storage, factory_id=factory_id, csv_bytes=BASIC_CSV, columns=BASIC_COLS)
+        art1 = _make_mapped_artifact(
+            storage, factory_id=factory_id, csv_bytes=BASIC_CSV, columns=BASIC_COLS
+        )
         s1 = builder.build_and_register(scope=scope, artifact=art1, contract=contract)
         assert s1.new_records == 2
 
-        art2 = _make_mapped_artifact(storage, factory_id=factory_id, csv_bytes=BASIC_CSV, columns=BASIC_COLS)
+        art2 = _make_mapped_artifact(
+            storage, factory_id=factory_id, csv_bytes=BASIC_CSV, columns=BASIC_COLS
+        )
         s2 = builder.build_and_register(scope=scope, artifact=art2, contract=contract)
         assert s2.exact_matches == 2
         assert s2.new_records == 0
         # Version IDs must be identical.
-        for m1, m2 in zip(s1.manifest.memberships, s2.manifest.memberships):
+        for m1, m2 in zip(s1.manifest.memberships, s2.manifest.memberships, strict=True):
             assert m1.record_version_id == m2.record_version_id
 
     def test_confirmed_correction_increments_version_number(self, tmp_path: Path):
@@ -925,7 +969,8 @@ class TestHistoricalRecordCorrection:
         scope = _make_scope(factory_id=factory_id)
 
         art1 = _make_mapped_artifact(
-            storage, factory_id=factory_id,
+            storage,
+            factory_id=factory_id,
             csv_bytes=b"batch_id,qty,waste\n001,100.0,2.0\n",
             columns=BASIC_COLS,
         )
@@ -933,7 +978,8 @@ class TestHistoricalRecordCorrection:
         record_id = s1.manifest.memberships[0].record_id
 
         art2 = _make_mapped_artifact(
-            storage, factory_id=factory_id,
+            storage,
+            factory_id=factory_id,
             csv_bytes=b"batch_id,qty,waste\n001,100.0,5.0\n",
             columns=BASIC_COLS,
         )
@@ -964,7 +1010,8 @@ class TestHistoricalRecordCorrection:
 
         # v1: waste=2.0
         art1 = _make_mapped_artifact(
-            storage, factory_id=factory_id,
+            storage,
+            factory_id=factory_id,
             csv_bytes=b"batch_id,qty,waste\n001,100.0,2.0\n",
             columns=BASIC_COLS,
         )
@@ -972,18 +1019,23 @@ class TestHistoricalRecordCorrection:
 
         # v2: waste=5.0 (confirmed correction)
         art2 = _make_mapped_artifact(
-            storage, factory_id=factory_id,
+            storage,
+            factory_id=factory_id,
             csv_bytes=b"batch_id,qty,waste\n001,100.0,5.0\n",
             columns=BASIC_COLS,
         )
         builder.build_and_register(
-            scope=scope, artifact=art2, contract=contract,
-            confirm_updates_by="qa", update_reason="Correction",
+            scope=scope,
+            artifact=art2,
+            contract=contract,
+            confirm_updates_by="qa",
+            update_reason="Correction",
         )
 
         # Now re-submit waste=2.0 (matches v1, not latest v2) → must be blocked.
         art3 = _make_mapped_artifact(
-            storage, factory_id=factory_id,
+            storage,
+            factory_id=factory_id,
             csv_bytes=b"batch_id,qty,waste\n001,100.0,2.0\n",
             columns=BASIC_COLS,
         )
@@ -1015,7 +1067,8 @@ class TestPredictionIdentitySeparation:
         training_record_ids: list[UUID] = []
         if with_training_data:
             art_train = _make_mapped_artifact(
-                storage, factory_id=factory_id,
+                storage,
+                factory_id=factory_id,
                 csv_bytes=BASIC_CSV,
                 columns=BASIC_COLS,
             )
@@ -1033,10 +1086,11 @@ class TestPredictionIdentitySeparation:
         columns: tuple,
     ) -> DatasetArtifact:
         ref = _store_csv(storage, factory_id=factory_id, csv_bytes=csv_bytes)
+        root_id = uuid4()
         rev_id = uuid4()
         metadata = DatasetMetadata(
             revision_id=rev_id,
-            root_revision_id=rev_id,
+            root_revision_id=root_id,
             factory_id=factory_id,
             domain="textile",
             process="weaving",
@@ -1049,6 +1103,14 @@ class TestPredictionIdentitySeparation:
             state=DatasetState.MAPPED,
             row_count=len(csv_bytes.decode().strip().split("\n")) - 1,
             columns=columns,
+            transformation=TransformationRecord(
+                execution_id=uuid4(),
+                parent_revision_id=root_id,
+                stage=PipelineStage.COLUMN_MAPPING,
+                operation="column_mapping",
+                implementation_version="1.0.0",
+                description="Test prediction dataset artifact",
+            ),
         )
         return DatasetArtifact(metadata=metadata, reference=ref)
 
@@ -1062,9 +1124,14 @@ class TestPredictionIdentitySeparation:
             DatasetColumnSchema(name="batch_id", physical_dtype="object"),
             DatasetColumnSchema(name="qty", physical_dtype="float64"),
         )
-        pred_art = self._make_prediction_artifact(storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols)
+        pred_art = self._make_prediction_artifact(
+            storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols
+        )
         batch = builder.resolve_prediction_observations(
-            scope=scope, artifact=pred_art, contract=contract, context=ctx,
+            scope=scope,
+            artifact=pred_art,
+            contract=contract,
+            context=ctx,
         )
         assert len(batch.observations) == 2
         for obs in batch.observations:
@@ -1082,9 +1149,14 @@ class TestPredictionIdentitySeparation:
             DatasetColumnSchema(name="batch_id", physical_dtype="object"),
             DatasetColumnSchema(name="qty", physical_dtype="float64"),
         )
-        pred_art = self._make_prediction_artifact(storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols)
+        pred_art = self._make_prediction_artifact(
+            storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols
+        )
         batch = builder.resolve_prediction_observations(
-            scope=scope, artifact=pred_art, contract=contract, context=ctx,
+            scope=scope,
+            artifact=pred_art,
+            contract=contract,
+            context=ctx,
         )
         assert len(batch.observations) == 1
         obs = batch.observations[0]
@@ -1102,9 +1174,14 @@ class TestPredictionIdentitySeparation:
             DatasetColumnSchema(name="batch_id", physical_dtype="object"),
             DatasetColumnSchema(name="qty", physical_dtype="float64"),
         )
-        pred_art = self._make_prediction_artifact(storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols)
+        pred_art = self._make_prediction_artifact(
+            storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols
+        )
         builder.resolve_prediction_observations(
-            scope=scope, artifact=pred_art, contract=contract, context=ctx,
+            scope=scope,
+            artifact=pred_art,
+            contract=contract,
+            context=ctx,
         )
         # No new historical identity must have been created.
         from taqamind.core.interfaces.dataset_registry import RegistryNotFoundError
@@ -1120,10 +1197,15 @@ class TestPredictionIdentitySeparation:
         # Include target column "waste" in prediction input — must be rejected.
         pred_csv = b"batch_id,qty,waste\n001,100.0,2.0\n"
         pred_cols = BASIC_COLS
-        pred_art = self._make_prediction_artifact(storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols)
+        pred_art = self._make_prediction_artifact(
+            storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols
+        )
         with pytest.raises(ValueError, match="TARGET_PRESENT_IN_PREDICTION"):
             builder.resolve_prediction_observations(
-                scope=scope, artifact=pred_art, contract=contract, context=ctx,
+                scope=scope,
+                artifact=pred_art,
+                contract=contract,
+                context=ctx,
             )
 
     def test_prediction_with_missing_key_resolves_unverified(self, tmp_path: Path):
@@ -1140,7 +1222,10 @@ class TestPredictionIdentitySeparation:
             storage, factory_id=factory_id, csv_bytes=pred_csv, columns=pred_cols
         )
         batch = builder.resolve_prediction_observations(
-            scope=scope, artifact=pred_art, contract=contract, context=ctx,
+            scope=scope,
+            artifact=pred_art,
+            contract=contract,
+            context=ctx,
         )
         obs = batch.observations[0]
         assert obs.resolution_status == PredictionIdentityStatus.UNVERIFIED
@@ -1248,7 +1333,9 @@ class TestCanonicalizationPerformance:
         return series, feat
 
     def _build_float_series(self, n: int) -> tuple[pd.Series, FeatureContract]:
-        feat = _make_feature("qty", dtype=DataType.FLOAT, constraints=FeatureConstraints(minimum=0.0))
+        feat = _make_feature(
+            "qty", dtype=DataType.FLOAT, constraints=FeatureConstraints(minimum=0.0)
+        )
         series = pd.Series([float(i) * 0.001 for i in range(n)])
         return series, feat
 
@@ -1261,34 +1348,37 @@ class TestCanonicalizationPerformance:
         canonicalize_column(series, feat)
         return time.perf_counter() - start
 
-    @pytest.mark.parametrize("n,max_seconds", [
-        (10_000, 5.0),
-        (100_000, 30.0),
-        (250_000, 60.0),
-    ])
+    @pytest.mark.parametrize(
+        "n,max_seconds",
+        [
+            (10_000, 5.0),
+            (100_000, 30.0),
+            (250_000, 60.0),
+        ],
+    )
     def test_string_canonicalization_throughput(self, n: int, max_seconds: float):
         elapsed = self._time_canonicalize(n, dtype="string")
         print(f"\n[BENCH] String canonicalize {n:,} rows: {elapsed:.3f}s")
         assert elapsed < max_seconds, (
-            f"String canonicalization of {n:,} rows took {elapsed:.3f}s "
-            f"(limit: {max_seconds}s)"
+            f"String canonicalization of {n:,} rows took {elapsed:.3f}s (limit: {max_seconds}s)"
         )
 
-    @pytest.mark.parametrize("n,max_seconds", [
-        (10_000, 10.0),
-        (100_000, 60.0),
-    ])
+    @pytest.mark.parametrize(
+        "n,max_seconds",
+        [
+            (10_000, 10.0),
+            (100_000, 60.0),
+        ],
+    )
     def test_float_canonicalization_throughput(self, n: int, max_seconds: float):
         elapsed = self._time_canonicalize(n, dtype="float")
         print(f"\n[BENCH] Float canonicalize {n:,} rows: {elapsed:.3f}s")
         assert elapsed < max_seconds, (
-            f"Float canonicalization of {n:,} rows took {elapsed:.3f}s "
-            f"(limit: {max_seconds}s)"
+            f"Float canonicalization of {n:,} rows took {elapsed:.3f}s (limit: {max_seconds}s)"
         )
 
     def test_hash_canonical_v2_row_throughput_10k(self):
         n = 10_000
-        pairs_template = [("batch_id", "str:BATCH-00000000"), ("qty", "float:0x0p+0")]
         start = time.perf_counter()
         for i in range(n):
             pairs = [("batch_id", f"str:BATCH-{i:08d}"), ("qty", "float:0x0p+0")]

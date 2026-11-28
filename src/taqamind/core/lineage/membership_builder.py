@@ -252,7 +252,8 @@ class RecordMembershipBuilder:
                 )
                 if biz_sha_v2 in seen_batch_keys:
                     raise ValueError(
-                        f"DUPLICATE_BUSINESS_KEY: Duplicate canonical business key at row {row_idx}."
+                        "DUPLICATE_BUSINESS_KEY: "
+                        f"Duplicate canonical business key at row {row_idx}."
                     )
                 seen_batch_keys.add(biz_sha_v2)
                 biz_sha_v1 = (
@@ -458,7 +459,9 @@ class RecordMembershipBuilder:
     ) -> PredictionObservationBatch:
         """Read-only prediction observation resolution without mutating historical lineage."""
         if context.purpose != DatasetPurpose.PREDICTION:
-            raise ValueError("Prediction observation resolution requires DatasetPurpose.PREDICTION.")
+            raise ValueError(
+                "Prediction observation resolution requires DatasetPurpose.PREDICTION."
+            )
         self._validate_scope_and_contract(
             scope=scope,
             artifact=artifact,

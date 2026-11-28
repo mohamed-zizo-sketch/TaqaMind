@@ -382,7 +382,10 @@ class RecordMatchResult(BaseModel):
                     "Matched record requires a confirmed identity."
                 )
 
-        elif self.status != RecordMatchStatus.MIGRATION_REQUIRED and self.matched_version is not None:
+        elif (
+            self.status != RecordMatchStatus.MIGRATION_REQUIRED
+            and self.matched_version is not None
+        ):
             raise ValueError(
                 "Unmatched record cannot expose a matched version."
             )
@@ -466,7 +469,9 @@ class PredictionObservation(BaseModel):
     def validate_observation(self) -> Self:
         if self.resolution_status == PredictionIdentityStatus.KNOWN_HISTORICAL:
             if self.known_record_id is None:
-                raise ValueError("Known historical prediction observation requires known_record_id.")
+                raise ValueError(
+                    "Known historical prediction observation requires known_record_id."
+                )
         elif self.known_record_id is not None:
             raise ValueError("Only KNOWN_HISTORICAL observations may expose known_record_id.")
         if self.resolution_status in {

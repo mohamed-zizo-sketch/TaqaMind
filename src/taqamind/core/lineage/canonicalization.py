@@ -31,7 +31,7 @@ class CanonicalizationError(ValueError):
         column: str,
         invalid_positions: tuple[int, ...] = (),
     ) -> None:
-        super().__init__(message)
+        super().__init__(f"{code}: {message}")
         self.code = code
         self.column = column
         self.invalid_positions = invalid_positions

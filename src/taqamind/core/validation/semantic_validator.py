@@ -3,7 +3,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import numpy as np
 import pandas as pd
 
 from taqamind.core.contracts.dataset import DatasetContract

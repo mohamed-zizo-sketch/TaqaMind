@@ -40,6 +40,7 @@ from taqamind.core.interfaces.prediction import (
 )
 from taqamind.core.interfaces.results import StageTiming
 from taqamind.core.interfaces.storage import DatasetArtifactStorage, ModelArtifactStorage
+from taqamind.core.lineage.membership_builder import RecordMembershipBuilder
 from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 
 
@@ -87,6 +88,7 @@ class CorePredictionEngine(PredictionEngine):
         resource_policy: CsvResourcePolicy | None = None,
         type_converter: ContractTypeConverter | None = None,
         identity_namespace: str = "production_record",
+        membership_builder: RecordMembershipBuilder | None = None,
     ) -> None:
         self._provider = active_model_provider
         self._dataset_storage = dataset_storage
@@ -95,6 +97,12 @@ class CorePredictionEngine(PredictionEngine):
         self._csv_reader = (csv_reader or SafeCsvReader()).bounded_by(self._resource_policy)
         self._converter = type_converter or ContractTypeConverter()
         self._identity_namespace = identity_namespace
+        self._membership_builder = membership_builder or RecordMembershipBuilder(
+            self._dataset_storage,
+            self._lineage_registry,
+            identity_namespace=self._identity_namespace,
+            resource_policy=self._resource_policy,
+        )
 
     def predict(
         self,
@@ -150,13 +158,15 @@ class CorePredictionEngine(PredictionEngine):
             dataset_id=context.dataset_id,
             identity_namespace=self._identity_namespace,
         )
-        membership = self._lineage_registry.get_membership(
+        obs_batch = self._membership_builder.resolve_prediction_observations(
             scope=rec_scope,
-            dataset_revision_id=artifact.metadata.revision_id,
+            artifact=artifact,
+            contract=contract,
+            context=context,
         )
-        if len(membership.memberships) != len(df):
+        if len(obs_batch.observations) != len(df):
             raise DataAccessDeniedError(
-                "Prediction dataset row count does not match registered membership."
+                "Prediction dataset row count does not match resolved observations."
             )
 
         preprocessor = bundle["preprocessor"]
@@ -174,12 +184,14 @@ class CorePredictionEngine(PredictionEngine):
         )
 
         predictions: list[RecordPrediction] = []
-        for idx, member in enumerate(membership.memberships):
+        for idx, obs in enumerate(obs_batch.observations):
             val = float(y_pred[idx])
             if not np.isfinite(val):
                 predictions.append(
                     RecordPrediction(
-                        record_id=member.record_id,
+                        record_id=obs.known_record_id,
+                        observation_id=obs.observation_id,
+                        row_position=obs.row_position,
                         status=PredictionStatus.REJECTED,
                         rejection_reason="NON_FINITE_PREDICTION",
                     )
@@ -208,7 +220,9 @@ class CorePredictionEngine(PredictionEngine):
 
             predictions.append(
                 RecordPrediction(
-                    record_id=member.record_id,
+                    record_id=obs.known_record_id,
+                    observation_id=obs.observation_id,
+                    row_position=obs.row_position,
                     status=PredictionStatus.SUCCEEDED,
                     predicted_value=val,
                     derived_rate=derived_rate,
