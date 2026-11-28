@@ -297,8 +297,12 @@ def build_bakery_dataset_contract(
 
 def build_bakery_process_contract(
     confirmation: TargetConfirmation | None = None,
+    energy_confirmation: TargetConfirmation | None = None,
 ) -> ProcessContract:
     """Build the ProcessContract for bakery manufacturing."""
+    from taqamind.domains.food_beverage.energy_contracts import (
+        build_bakery_energy_task_contract,
+    )
 
     dataset_contract = build_bakery_dataset_contract(confirmation=confirmation)
     task = IndustrialTaskContract(
@@ -310,10 +314,11 @@ def build_bakery_process_contract(
         task_type=TaskType.REGRESSION,
         dataset_contract=dataset_contract,
     )
+    energy_task = build_bakery_energy_task_contract(confirmation=energy_confirmation)
     return ProcessContract(
         process_id=PROCESS_ID,
         version="1.0.0",
         display_name="Bakery & Cereal Manufacturing",
         description="Industrial bread, pastry, and baked goods manufacturing process.",
-        tasks=(task,),
+        tasks=(task, energy_task),
     )

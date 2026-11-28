@@ -38,10 +38,12 @@ def make_synthetic_target_confirmation(
 
 def build_food_beverage_domain(
     confirmations: dict[str, TargetConfirmation] | None = None,
+    energy_confirmations: dict[str, TargetConfirmation] | None = None,
 ) -> DomainContract:
     """Construct the Food & Beverage DomainContract."""
 
     conf = confirmations or {}
+    e_conf = energy_confirmations or {}
     return DomainContract(
         domain_id=DOMAIN_ID,
         version=DOMAIN_VERSION,
@@ -51,9 +53,18 @@ def build_food_beverage_domain(
             "manufacturing facilities."
         ),
         processes=(
-            build_bakery_process_contract(confirmation=conf.get("bakery")),
-            build_dairy_process_contract(confirmation=conf.get("dairy")),
-            build_beverage_process_contract(confirmation=conf.get("beverage")),
+            build_bakery_process_contract(
+                confirmation=conf.get("bakery"),
+                energy_confirmation=e_conf.get("bakery"),
+            ),
+            build_dairy_process_contract(
+                confirmation=conf.get("dairy"),
+                energy_confirmation=e_conf.get("dairy"),
+            ),
+            build_beverage_process_contract(
+                confirmation=conf.get("beverage"),
+                energy_confirmation=e_conf.get("beverage"),
+            ),
         ),
     )
 
@@ -61,9 +72,13 @@ def build_food_beverage_domain(
 def register_food_beverage(
     registry: DomainRegistry | None = None,
     confirmations: dict[str, TargetConfirmation] | None = None,
+    energy_confirmations: dict[str, TargetConfirmation] | None = None,
 ) -> DomainContract:
     """Register the Food & Beverage domain into a DomainRegistry instance."""
 
     target_registry = registry if registry is not None else domain_registry
-    domain = build_food_beverage_domain(confirmations=confirmations)
+    domain = build_food_beverage_domain(
+        confirmations=confirmations,
+        energy_confirmations=energy_confirmations,
+    )
     return target_registry.register(domain)

@@ -240,8 +240,12 @@ def build_dairy_dataset_contract(
 
 def build_dairy_process_contract(
     confirmation: TargetConfirmation | None = None,
+    energy_confirmation: TargetConfirmation | None = None,
 ) -> ProcessContract:
     """Build the ProcessContract for dairy manufacturing."""
+    from taqamind.domains.food_beverage.energy_contracts import (
+        build_dairy_energy_task_contract,
+    )
 
     dataset_contract = build_dairy_dataset_contract(confirmation=confirmation)
     task = IndustrialTaskContract(
@@ -253,10 +257,11 @@ def build_dairy_process_contract(
         task_type=TaskType.REGRESSION,
         dataset_contract=dataset_contract,
     )
+    energy_task = build_dairy_energy_task_contract(confirmation=energy_confirmation)
     return ProcessContract(
         process_id=PROCESS_ID,
         version="1.0.0",
         display_name="Dairy Manufacturing",
         description="Fluid milk, yogurt, and cheese industrial processing.",
-        tasks=(task,),
+        tasks=(task, energy_task),
     )

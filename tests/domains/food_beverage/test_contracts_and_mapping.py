@@ -20,7 +20,7 @@ def test_domain_registration_succeeds() -> None:
     domain = register_food_beverage(registry)
     assert domain.domain_id == "food_beverage"
     assert set(domain.process_ids) == {"bakery", "dairy", "beverage"}
-    assert domain.total_tasks == 3
+    assert domain.total_tasks == 6
 
 
 def test_required_feature_and_unknown_feature_rejection(
