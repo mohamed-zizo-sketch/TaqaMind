@@ -134,7 +134,12 @@ class UnitAwareColumnMapperAdapter(ColumnMapper):
 
         for col_name, factor in factors.items():
             if factor != 1.0:
-                numeric = pd.to_numeric(mapped_df[col_name], errors="coerce")
+                try:
+                    numeric = pd.to_numeric(mapped_df[col_name], errors="raise")
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(
+                        f"Column '{col_name}' contains non-numeric values during unit conversion."
+                    ) from exc
                 mapped_df[col_name] = numeric * factor
 
         mapped_bytes = mapped_df.to_csv(index=False).encode("utf-8")
