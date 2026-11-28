@@ -36,6 +36,7 @@ from taqamind.core.interfaces.results import (
     StageTiming,
 )
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
+from taqamind.core.lineage.canonicalization import find_duplicate_canonical_business_keys
 from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 from taqamind.core.validation.column_validation import validate_column
 
@@ -155,10 +156,11 @@ class ContractSemanticValidator(SemanticValidator):
         if not df.empty and contract.business_keys:
             keys_present = all(key in df.columns for key in contract.business_keys)
             if keys_present:
-                key_frame = df[list(contract.business_keys)]
-                non_null_mask = ~key_frame.isna().any(axis=1)
-                dup_mask = non_null_mask & key_frame.duplicated(keep="first")
-                dup_indices = np.flatnonzero(dup_mask.to_numpy())
+                dup_indices = find_duplicate_canonical_business_keys(
+                    df,
+                    contract,
+                    converter=self._converter,
+                )
                 if len(dup_indices) > 0:
                     issues.append(
                         ValidationIssue(
@@ -169,7 +171,7 @@ class ContractSemanticValidator(SemanticValidator):
                             message=("Duplicate business key records violate row identity."),
                             columns=contract.business_keys,
                             affected_rows=int(len(dup_indices)),
-                            row_samples=tuple(int(idx) for idx in dup_indices[:_MAX_ROW_SAMPLES]),
+                            row_samples=dup_indices[:_MAX_ROW_SAMPLES],
                             recommendation="Deduplicate business keys before proceeding.",
                         )
                     )

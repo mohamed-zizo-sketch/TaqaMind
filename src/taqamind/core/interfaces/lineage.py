@@ -67,14 +67,24 @@ def calculate_record_fingerprint(
             "Fingerprint field names must be unique."
         )
 
-    payload = {
-        "namespace": namespace,
-        "version": version,
-        "fields": {
-            field.name: field.value
-            for field in fields
-        },
-    }
+    if version == "1.0.0":
+        payload = {
+            "namespace": namespace,
+            "version": version,
+            "fields": {
+                field.name: field.value
+                for field in fields
+            },
+        }
+    else:
+        payload = {
+            "namespace": namespace,
+            "version": version,
+            "fields": {
+                field.name: _encode_typed_v2(field.value)
+                for field in fields
+            },
+        }
 
     canonical = json.dumps(
         payload,
@@ -85,6 +95,19 @@ def calculate_record_fingerprint(
     ).encode("utf-8")
 
     return calculate_bytes_sha256(canonical)
+
+
+def _encode_typed_v2(value: FingerprintValue) -> dict[str, object]:
+    if value is None:
+        return {"t": "null", "v": None}
+    if isinstance(value, bool):
+        return {"t": "bool", "v": value}
+    if isinstance(value, int):
+        return {"t": "int", "v": str(value)}
+    if isinstance(value, float):
+        normalized = 0.0 if value == 0.0 else value
+        return {"t": "float", "v": normalized.hex()}
+    return {"t": "str", "v": value}
 
 
 class RecordScope(BaseModel):
@@ -312,6 +335,8 @@ class RecordMatchStatus(StrEnum):
 
     UNVERIFIED = "unverified"
 
+    MIGRATION_REQUIRED = "migration_required"
+
 
 class RecordMatchResult(BaseModel):
     """Decision metadata for an incoming record."""
@@ -333,6 +358,7 @@ class RecordMatchResult(BaseModel):
             RecordMatchStatus.CONTENT_CHANGED,
             RecordMatchStatus.AMBIGUOUS,
             RecordMatchStatus.UNVERIFIED,
+            RecordMatchStatus.MIGRATION_REQUIRED,
         }
 
     @model_validator(mode="after")
@@ -356,7 +382,7 @@ class RecordMatchResult(BaseModel):
                     "Matched record requires a confirmed identity."
                 )
 
-        elif self.matched_version is not None:
+        elif self.status != RecordMatchStatus.MIGRATION_REQUIRED and self.matched_version is not None:
             raise ValueError(
                 "Unmatched record cannot expose a matched version."
             )
@@ -405,3 +431,61 @@ class DatasetRecordMembership(BaseModel):
             raise ValueError(
                 "Membership record version mismatch."
             )
+
+
+class PredictionIdentityStatus(StrEnum):
+    """Read-only identity resolution status for a prediction observation."""
+
+    KNOWN_HISTORICAL = "known_historical"
+    NEW_OBSERVATION_CANDIDATE = "new_observation_candidate"
+    UNVERIFIED = "unverified"
+    AMBIGUOUS = "ambiguous"
+    MIGRATION_REQUIRED = "migration_required"
+
+
+class PredictionObservation(BaseModel):
+    """Immutable prediction observation separate from historical RecordVersion."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    observation_id: UUID = Field(default_factory=uuid4)
+    scope: RecordScope
+    prediction_dataset_revision_id: UUID
+    row_position: int = Field(ge=0)
+    business_key_sha256: SHA256Digest | None = None
+    prediction_input_sha256: SHA256Digest
+    prediction_fingerprint_version: ContractVersion = "2.0.0"
+    resolution_status: PredictionIdentityStatus
+    known_record_id: UUID | None = None
+    reason: NonEmptyString | None = None
+
+    @model_validator(mode="after")
+    def validate_observation(self) -> Self:
+        if self.resolution_status == PredictionIdentityStatus.KNOWN_HISTORICAL:
+            if self.known_record_id is None:
+                raise ValueError("Known historical prediction observation requires known_record_id.")
+        elif self.known_record_id is not None:
+            raise ValueError("Only KNOWN_HISTORICAL observations may expose known_record_id.")
+        if self.resolution_status in {
+            PredictionIdentityStatus.UNVERIFIED,
+            PredictionIdentityStatus.AMBIGUOUS,
+            PredictionIdentityStatus.MIGRATION_REQUIRED,
+        } and self.reason is None:
+            raise ValueError("Reviewable prediction observation requires a reason.")
+        return self
+
+
+class PredictionObservationBatch(BaseModel):
+    """Batch of resolved prediction observations (never historical DatasetRecordMembership)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    scope: RecordScope
+    prediction_dataset_revision_id: UUID
+    observations: tuple[PredictionObservation, ...]

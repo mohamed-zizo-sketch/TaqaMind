@@ -215,15 +215,29 @@ class LocalRecordLineageRegistry(RecordLineageRegistry):
         latest = versions[-1]
         if latest.content_fingerprint_version != content_fingerprint_version:
             return RecordMatchResult(
-                status=RecordMatchStatus.CONTENT_CHANGED,
+                status=RecordMatchStatus.MIGRATION_REQUIRED,
                 matched_version=latest,
-                reason="Content fingerprint version changed; explicit review required.",
+                reason="Content fingerprint version changed; explicit migration required.",
             )
 
         if latest.content_sha256 == content_sha256:
             return RecordMatchResult(
                 status=RecordMatchStatus.EXACT_MATCH,
                 matched_version=latest,
+            )
+
+        if any(
+            ver.content_sha256 == content_sha256
+            and ver.content_fingerprint_version == content_fingerprint_version
+            for ver in versions[:-1]
+        ):
+            return RecordMatchResult(
+                status=RecordMatchStatus.CONTENT_CHANGED,
+                matched_version=latest,
+                reason=(
+                    "Incoming content matches an older historical version rather than "
+                    "the latest version; explicit review required."
+                ),
             )
 
         return RecordMatchResult(

@@ -155,7 +155,11 @@ class RecordPrediction(BaseModel):
         allow_inf_nan=False,
     )
 
-    record_id: UUID
+    record_id: UUID | None = None
+
+    observation_id: UUID | None = None
+
+    row_position: int | None = Field(default=None, ge=0)
 
     status: PredictionStatus
 
@@ -256,6 +260,7 @@ class PredictionBatchResult(BaseModel):
         self,
         expected_record_ids: tuple[UUID, ...],
     ) -> None:
+        """Validate that all expected record IDs appear in known-identity predictions."""
         expected = set(expected_record_ids)
 
         if len(expected) != len(expected_record_ids):
@@ -266,6 +271,7 @@ class PredictionBatchResult(BaseModel):
         actual = {
             prediction.record_id
             for prediction in self.predictions
+            if prediction.record_id is not None
         }
 
         if actual != expected:
@@ -418,12 +424,14 @@ class PredictionBatchResult(BaseModel):
                 "Prediction artifact is missing model predictors."
             )
 
-        record_ids = [
+        # Only known record IDs must be unique; None means unresolved observation.
+        known_record_ids = [
             prediction.record_id
             for prediction in self.predictions
+            if prediction.record_id is not None
         ]
 
-        if len(record_ids) != len(set(record_ids)):
+        if len(known_record_ids) != len(set(known_record_ids)):
             raise ValueError(
                 "Prediction record identifiers must be unique."
             )
