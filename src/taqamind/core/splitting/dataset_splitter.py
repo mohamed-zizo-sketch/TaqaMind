@@ -152,6 +152,32 @@ class CoreDatasetSplitter(DatasetSplitter):
             raise ValueError("Unable to populate non-empty train/validation/test partitions.")
         return train, val, test
 
+    @staticmethod
+    def _parse_timestamps(df: pd.DataFrame, time_column: str) -> pd.Series:
+        try:
+            timestamps = pd.to_datetime(df[time_column], format="mixed", utc=True)
+        except Exception as exc:
+            raise ValueError(
+                f"Time column '{time_column}' contains unparseable timestamps."
+            ) from exc
+        if bool(timestamps.isna().any()):
+            raise ValueError(
+                f"Time column '{time_column}' contains missing or unparseable timestamps."
+            )
+        return timestamps
+
+    @staticmethod
+    def _group_key(
+        df: pd.DataFrame, idx: int, grouping_columns: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        parts: list[str] = []
+        for col in grouping_columns:
+            val = df.iloc[idx][col]
+            if bool(pd.isna(val)):
+                raise ValueError(f"Grouping column '{col}' contains missing values.")
+            parts.append(str(val).strip())
+        return tuple(parts)
+
     def _split_group(
         self,
         df: pd.DataFrame,
@@ -161,7 +187,7 @@ class CoreDatasetSplitter(DatasetSplitter):
     ) -> tuple[list[UUID], list[UUID], list[UUID]]:
         groups: dict[tuple[str, ...], list[UUID]] = {}
         for idx, rid in enumerate(record_ids):
-            key = tuple(str(df.iloc[idx][col]) for col in grouping_columns)
+            key = self._group_key(df, idx, grouping_columns)
             groups.setdefault(key, []).append(rid)
 
         sorted_keys = sorted(groups.keys())
@@ -177,7 +203,7 @@ class CoreDatasetSplitter(DatasetSplitter):
         time_column: str,
         configuration: SplitConfiguration,
     ) -> tuple[list[UUID], list[UUID], list[UUID]]:
-        timestamps = pd.to_datetime(df[time_column], format="mixed", utc=True)
+        timestamps = self._parse_timestamps(df, time_column)
         buckets: dict[pd.Timestamp, list[UUID]] = {}
         for idx, rid in enumerate(record_ids):
             ts = timestamps.iloc[idx]
@@ -193,19 +219,19 @@ class CoreDatasetSplitter(DatasetSplitter):
         time_column: str,
         configuration: SplitConfiguration,
     ) -> tuple[list[UUID], list[UUID], list[UUID]]:
-        timestamps = pd.to_datetime(df[time_column], format="mixed", utc=True)
-        groups: dict[tuple[str, ...], tuple[pd.Timestamp, list[UUID]]] = {}
+        timestamps = self._parse_timestamps(df, time_column)
+        groups: dict[tuple[str, ...], tuple[pd.Timestamp, pd.Timestamp, list[UUID]]] = {}
         for idx, rid in enumerate(record_ids):
-            key = tuple(str(df.iloc[idx][col]) for col in grouping_columns)
+            key = self._group_key(df, idx, grouping_columns)
             ts = timestamps.iloc[idx]
             if key not in groups:
-                groups[key] = (ts, [rid])
+                groups[key] = (ts, ts, [rid])
             else:
-                max_ts, ids = groups[key]
+                min_ts, max_ts, ids = groups[key]
                 ids.append(rid)
-                groups[key] = (max(max_ts, ts), ids)
-        ordered = sorted(groups.items(), key=lambda item: (item[1][0], item[0]))
-        ordered_blocks = [item[1][1] for item in ordered]
+                groups[key] = (min(min_ts, ts), max(max_ts, ts), ids)
+        ordered = sorted(groups.items(), key=lambda item: (item[1][0], item[1][1], item[0]))
+        ordered_blocks = [item[1][2] for item in ordered]
         return self._allocate_blocks(ordered_blocks, len(record_ids), configuration)
 
     def _split_random(

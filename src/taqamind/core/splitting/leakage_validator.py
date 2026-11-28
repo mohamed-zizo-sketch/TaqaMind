@@ -94,7 +94,12 @@ class CoreLeakageValidator(LeakageValidator):
         train_set = set(manifest.train.record_ids)
         val_set = set(manifest.validation.record_ids)
         test_set = set(manifest.test.record_ids)
-        if (train_set & val_set) | (train_set & test_set) | (val_set & test_set):
+        if (
+            membership.has_repeated_record_ids
+            or (train_set & val_set)
+            | (train_set & test_set)
+            | (val_set & test_set)
+        ):
             checks.append(
                 LeakageCheckResult(
                     check=LeakageCheck.RECORD_OVERLAP,
@@ -195,12 +200,36 @@ class CoreLeakageValidator(LeakageValidator):
                 "val": set(),
                 "test": set(),
             }
+            missing_group_key = False
             for pname, rids in (("train", train_set), ("val", val_set), ("test", test_set)):
                 for rid in rids:
                     r_idx = row_by_record[rid]
-                    gkey = tuple(str(df.iloc[r_idx][col]) for col in contract.grouping_columns)
-                    part_groups[pname].add(gkey)
-            if (
+                    parts: list[str] = []
+                    for col in contract.grouping_columns:
+                        val = df.iloc[r_idx][col]
+                        if bool(pd.isna(val)):
+                            missing_group_key = True
+                            break
+                        parts.append(str(val).strip())
+                    if missing_group_key:
+                        break
+                    part_groups[pname].add(tuple(parts))
+                if missing_group_key:
+                    break
+            if missing_group_key:
+                checks.append(
+                    LeakageCheckResult(
+                        check=LeakageCheck.GROUP_OVERLAP,
+                        status=LeakageCheckStatus.FAILED,
+                        reason="Grouping column contains missing values.",
+                    )
+                )
+                issues.append(
+                    self._blocking_issue(
+                        "LEAKAGE_GROUP_OVERLAP", "Grouping column contains missing values."
+                    )
+                )
+            elif (
                 (part_groups["train"] & part_groups["val"])
                 | (part_groups["train"] & part_groups["test"])
                 | (part_groups["val"] & part_groups["test"])
@@ -238,28 +267,48 @@ class CoreLeakageValidator(LeakageValidator):
             SplitStrategy.GROUP_TEMPORAL,
         }:
             assert contract.time_column is not None
-            ts = pd.to_datetime(df[contract.time_column], format="mixed", utc=True)
-            train_max = max(ts.iloc[row_by_record[r]] for r in train_set)
-            val_min = min(ts.iloc[row_by_record[r]] for r in val_set)
-            val_max = max(ts.iloc[row_by_record[r]] for r in val_set)
-            test_min = min(ts.iloc[row_by_record[r]] for r in test_set)
-            if train_max > val_min or val_max > test_min:
+            try:
+                ts = pd.to_datetime(df[contract.time_column], format="mixed", utc=True)
+            except Exception:
+                ts = pd.Series([pd.NaT] * len(df))
+            if bool(ts.isna().any()):
                 checks.append(
                     LeakageCheckResult(
                         check=LeakageCheck.TEMPORAL_ORDER,
                         status=LeakageCheckStatus.FAILED,
-                        reason="Temporal look-ahead violation between partitions.",
+                        reason="Time column contains missing or unparseable timestamps.",
                     )
                 )
                 issues.append(
-                    self._blocking_issue("LEAKAGE_TEMPORAL_ORDER", "Temporal ordering violated.")
-                )
-            else:
-                checks.append(
-                    LeakageCheckResult(
-                        check=LeakageCheck.TEMPORAL_ORDER, status=LeakageCheckStatus.PASSED
+                    self._blocking_issue(
+                        "LEAKAGE_TEMPORAL_ORDER",
+                        "Time column contains missing or unparseable timestamps.",
                     )
                 )
+            else:
+                train_max = max(ts.iloc[row_by_record[r]] for r in train_set)
+                val_min = min(ts.iloc[row_by_record[r]] for r in val_set)
+                val_max = max(ts.iloc[row_by_record[r]] for r in val_set)
+                test_min = min(ts.iloc[row_by_record[r]] for r in test_set)
+                if train_max > val_min or val_max > test_min:
+                    checks.append(
+                        LeakageCheckResult(
+                            check=LeakageCheck.TEMPORAL_ORDER,
+                            status=LeakageCheckStatus.FAILED,
+                            reason="Temporal look-ahead violation between partitions.",
+                        )
+                    )
+                    issues.append(
+                        self._blocking_issue(
+                            "LEAKAGE_TEMPORAL_ORDER", "Temporal ordering violated."
+                        )
+                    )
+                else:
+                    checks.append(
+                        LeakageCheckResult(
+                            check=LeakageCheck.TEMPORAL_ORDER, status=LeakageCheckStatus.PASSED
+                        )
+                    )
         else:
             checks.append(
                 LeakageCheckResult(
