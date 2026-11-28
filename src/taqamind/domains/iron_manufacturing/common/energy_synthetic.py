@@ -54,8 +54,9 @@ def generate_synthetic_eaf_energy_dataset(
             + 12.0 * (target_temp - 1600.0)
             + float(rng.normal(0.0, 280.0))
         )
+        key_prefix = "" if include_target else "PRED-"
         row: dict[str, object] = {
-            "heat_id": f"H-{seed}-{idx:04d}",
+            "heat_id": f"{key_prefix}H-{seed}-{idx:04d}",
             "production_order_id": f"ORD-EAF-{seed}-{order_idx:03d}",
             "planned_start_ts": (base_ts + timedelta(hours=i)).isoformat(),
             "furnace_id": "EAF-1" if idx % 2 == 0 else "EAF-2",
@@ -108,8 +109,9 @@ def generate_synthetic_rebar_energy_dataset(
             + (420.0 / diam_mm) * 25.0
             + float(rng.normal(0.0, 180.0))
         )
+        key_prefix = "" if include_target else "PRED-"
         row: dict[str, object] = {
-            "rolling_lot_id": f"RL-{seed}-{idx:04d}",
+            "rolling_lot_id": f"{key_prefix}RL-{seed}-{idx:04d}",
             "production_order_id": f"ORD-RBR-{seed}-{order_idx:03d}",
             "planned_start_ts": (base_ts + timedelta(hours=i * 2)).isoformat(),
             "mill_line_id": "MILL-A" if idx % 2 == 0 else "MILL-B",
@@ -157,8 +159,9 @@ def generate_synthetic_scrap_yard_energy_dataset(
             + 6.5 * scrap_t
             + float(rng.normal(0.0, 45.0))
         )
+        key_prefix = "" if include_target else "PRED-"
         row: dict[str, object] = {
-            "reception_lot_id": f"SYE-{seed}-{idx:04d}",
+            "reception_lot_id": f"{key_prefix}SYE-{seed}-{idx:04d}",
             "delivery_batch_id": f"BATCH-SY-{seed}-{batch_idx:03d}",
             "planned_start_ts": (base_ts + timedelta(hours=i * 2)).isoformat(),
             "planned_scrap_mass_t": round(scrap_t, 3),

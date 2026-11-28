@@ -48,11 +48,11 @@ from taqamind.core.interfaces.processing import (
 from taqamind.core.interfaces.processing_models import ApprovedMapping
 from taqamind.core.interfaces.results import ExecutionStatus
 from taqamind.core.interfaces.storage import DatasetArtifactStorage
-from taqamind.domains.iron_manufacturing.adapters._store import (
-    read_artifact_df as _read_artifact_df,
-)
 from taqamind.domains.iron_manufacturing.common.hashing import calculate_contract_sha256
 from taqamind.domains.iron_manufacturing.common.normalization import safe_export_csv
+from taqamind.domains.iron_manufacturing.services.lineage_service import (
+    read_artifact_df as _read_artifact_df,
+)
 from taqamind.domains.iron_manufacturing.services.lineage_service import (
     register_dataset_lineage,
 )

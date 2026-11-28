@@ -21,12 +21,38 @@ from taqamind.core.interfaces.lineage import (
     RecordIdentity,
     RecordIdentityStatus,
     RecordMatchStatus,
+    RecordScope,
     RecordVersion,
     calculate_record_fingerprint,
 )
-from taqamind.domains.iron_manufacturing.adapters.readiness_and_splitting import (
-    build_record_scope,
-)
+from taqamind.core.interfaces.storage import DatasetArtifactStorage
+
+
+def build_record_scope(
+    context: PipelineContext,
+    *,
+    identity_namespace: str = "production_record",
+    identity_version: str = "1.0.0",
+) -> RecordScope:
+    """Create the deterministic Core-aligned RecordScope for a PipelineContext."""
+    return RecordScope(
+        factory_id=context.factory_id,
+        domain=context.domain,
+        process=context.process,
+        dataset_id=context.dataset_id,
+        identity_namespace=identity_namespace,
+        identity_version=identity_version,
+    )
+
+
+def read_artifact_df(
+    storage: DatasetArtifactStorage,
+    factory_id: UUID,
+    artifact: DatasetArtifact,
+) -> pd.DataFrame:
+    """Read a verified CSV dataset artifact from storage into a DataFrame."""
+    with storage.open_verified(factory_id=factory_id, reference=artifact.reference) as stream:
+        return pd.read_csv(stream, keep_default_na=True, low_memory=False)
 
 
 @dataclass(frozen=True)

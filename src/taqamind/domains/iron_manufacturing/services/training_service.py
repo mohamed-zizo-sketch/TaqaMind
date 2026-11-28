@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import pickle
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,6 +14,7 @@ from uuid import UUID, uuid4
 import numpy as np
 import pandas as pd
 
+from taqamind.core.automl.data_access import convert_dataframe_by_contract
 from taqamind.core.contracts import (
     DatasetContract,
     DatasetPurpose,
@@ -25,6 +28,7 @@ from taqamind.core.interfaces.artifacts import (
 )
 from taqamind.core.interfaces.candidates import TrainingRunResult
 from taqamind.core.interfaces.context import PipelineContext
+from taqamind.core.interfaces.data_access import ProtectedTestDataProvider
 from taqamind.core.interfaces.dataset import DatasetArtifact, DatasetMetadata
 from taqamind.core.interfaces.dataset_registry import (
     DatasetRegistry,
@@ -39,12 +43,14 @@ from taqamind.core.interfaces.evaluation import (
 from taqamind.core.interfaces.leakage import LeakageValidationResult
 from taqamind.core.interfaces.ml import (
     DatasetSplitter,
+    FinalModelEvaluator,
     LeakageValidator,
     ModelTrainer,
     TrainingReadinessChecker,
 )
 from taqamind.core.interfaces.model_registry import (
     ModelFeatureSpecification,
+    ModelRegistry,
     ModelRegistryEntry,
     ModelScope,
     ModelStatus,
@@ -81,6 +87,8 @@ from taqamind.core.interfaces.training import (
     TrainingConfiguration,
 )
 from taqamind.core.interfaces.training_registry import (
+    EvaluationRegistry,
+    SplitRegistry,
     TrainingIntent,
     TrainingMode,
     TrainingRegistry,
@@ -88,21 +96,7 @@ from taqamind.core.interfaces.training_registry import (
     calculate_split_fingerprint,
     calculate_training_configuration_fingerprint,
 )
-from taqamind.domains.iron_manufacturing.adapters._store import (
-    read_artifact_df as _read_artifact_df,
-)
-from taqamind.domains.iron_manufacturing.adapters.data_access import (
-    LocalProtectedTestDataProvider,
-)
-from taqamind.domains.iron_manufacturing.adapters.model_registry import LocalModelRegistry
-from taqamind.domains.iron_manufacturing.adapters.modeling import (
-    ProtectedFinalModelEvaluator,
-    deserialize_trusted_bundle,
-)
-from taqamind.domains.iron_manufacturing.adapters.training_registry import (
-    LocalEvaluationRegistry,
-    LocalSplitRegistry,
-)
+from taqamind.core.preprocessing.type_conversion import ContractTypeConverter
 from taqamind.domains.iron_manufacturing.common.hashing import (
     calculate_contract_sha256,
     calculate_implementation_sha256,
@@ -114,6 +108,9 @@ from taqamind.domains.iron_manufacturing.config import (
 from taqamind.domains.iron_manufacturing.services.lineage_service import (
     LineageResolutionSummary,
     register_dataset_lineage,
+)
+from taqamind.domains.iron_manufacturing.services.lineage_service import (
+    read_artifact_df as _read_artifact_df,
 )
 
 
@@ -359,11 +356,12 @@ class IronTrainingService:
         model_storage: ModelArtifactStorage,
         dataset_registry: DatasetRegistry,
         lineage_registry: RecordLineageRegistry,
-        split_registry: LocalSplitRegistry,
+        split_registry: SplitRegistry,
         training_registry: TrainingRegistry,
-        evaluation_registry: LocalEvaluationRegistry,
-        model_registry: LocalModelRegistry,
-        test_data_provider: LocalProtectedTestDataProvider,
+        evaluation_registry: EvaluationRegistry,
+        model_registry: ModelRegistry,
+        test_data_provider: ProtectedTestDataProvider,
+        evaluator_factory: Callable[[DatasetContract], FinalModelEvaluator],
         ingestion: DataIngestion,
         profiler: DataProfiler,
         column_mapper: ColumnMapper,
@@ -384,6 +382,7 @@ class IronTrainingService:
         self._evaluation_registry = evaluation_registry
         self._model_registry = model_registry
         self._test_data_provider = test_data_provider
+        self._evaluator_factory = evaluator_factory
         self._ingestion = ingestion
         self._profiler = profiler
         self._column_mapper = column_mapper
@@ -759,12 +758,7 @@ class IronTrainingService:
         )
 
         # Stage 13: Protected Final Evaluation (single use, no refitting)
-        evaluator = ProtectedFinalModelEvaluator(
-            contract=contract,
-            evaluation_registry=self._evaluation_registry,
-            test_data_provider=self._test_data_provider,
-            model_storage=self._model_storage,
-        )
+        evaluator = self._evaluator_factory(contract)
         final_eval = evaluator.evaluate(selection=selection, manifest=manifest)
 
         # Stage 14: Register immutable candidate ModelVersion & apply evaluation decision
@@ -773,7 +767,8 @@ class IronTrainingService:
         assert best_challenger_res.model_reference is not None
         selected_cfg = training_run.configuration.get_candidate(selection.selected_candidate_id)
 
-        version_num = self._model_registry.next_version_number(scope=scope)
+        existing_versions = self._model_registry.list_versions(scope=scope)
+        version_num = max((v.version.version_number for v in existing_versions), default=0) + 1
         model_identity = PredictionModelIdentity(
             model_version_id=uuid4(),
             factory_id=factory_id,
@@ -899,17 +894,25 @@ class IronTrainingService:
     ) -> PromotionComparison:
         rec_to_row = {m.record_id: m.row_position for m in lineage_summary.manifest.memberships}
         test_rows = [rec_to_row[rid] for rid in manifest.test.record_ids]
-        test_df = eng_df.iloc[test_rows]
-        y_true = test_df[contract.target.feature.name].to_numpy(dtype=float)
+        test_df = convert_dataframe_by_contract(
+            eng_df.iloc[test_rows].reset_index(drop=True),
+            contract=contract,
+            converter=ContractTypeConverter(),
+        )
+        y_true = pd.to_numeric(
+            test_df[contract.target.feature.name], errors="raise"
+        ).to_numpy(dtype=float)
 
         def _mae_for_entry(entry: ModelRegistryEntry) -> float:
             with self._model_storage.open_verified(
                 factory_id=scope.factory_id,
                 reference=entry.version.artifact,
             ) as stream:
-                env = deserialize_trusted_bundle(stream.read())
-            X_te = test_df.loc[:, list(env["feature_names"])]
-            preds = np.asarray(env["pipeline"].predict(X_te), dtype=float)
+                bundle = pickle.loads(stream.read())
+            X_te = bundle["preprocessor"].transform(test_df)
+            preds = np.asarray(bundle["estimator"].predict(X_te), dtype=float)
+            if bundle.get("must_be_non_negative", False):
+                preds = np.maximum(0.0, preds)
             target_min = contract.target.feature.constraints.minimum
             if target_min is not None:
                 preds = np.clip(preds, target_min, None)

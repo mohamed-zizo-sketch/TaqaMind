@@ -12,7 +12,6 @@ from taqamind.core.contracts import (
     DomainContract,
     TargetConfirmation,
 )
-from taqamind.core.ingestion import CsvDataIngestion
 from taqamind.core.interfaces.artifacts import (
     ArtifactFormat,
     ArtifactReference,
@@ -31,39 +30,14 @@ from taqamind.core.interfaces.results import ExecutionStatus
 from taqamind.core.interfaces.splitting import SplitConfiguration
 from taqamind.core.interfaces.training import TrainingConfiguration
 from taqamind.core.interfaces.training_registry import TrainingMode
-from taqamind.core.lineage import LocalRecordLineageRegistry
-from taqamind.core.mapping import DeterministicColumnMapper
-from taqamind.core.preprocessing import ContractDataCleaner
-from taqamind.core.profiling import PandasDataProfiler
-from taqamind.core.registry import (
-    DomainRegistry,
-    LocalDatasetArtifactStorage,
-    LocalDatasetRegistry,
-    LocalModelArtifactStorage,
-)
-from taqamind.core.validation import ContractSemanticValidator
+from taqamind.core.pipeline import CorePlatformServices
+from taqamind.core.registry import DomainRegistry
 from taqamind.domains.iron_manufacturing.adapters import (
-    ControlledModelTrainer,
     IronSemanticValidator,
     IronUnitAwareColumnMapper,
-    LocalActiveModelProvider,
-    LocalDatasetSplitter,
-    LocalDevelopmentDataProvider,
-    LocalEvaluationRegistry,
-    LocalLeakageValidator,
-    LocalModelRegistry,
-    LocalProtectedTestDataProvider,
-    LocalRecordUsageRegistry,
-    LocalSplitRegistry,
-    LocalTrainingReadinessChecker,
-    LocalTrainingRegistry,
     ProcessFeatureEngineerRouter,
-    ZeroRetrainingPredictionEngine,
 )
-from taqamind.domains.iron_manufacturing.config import (
-    DOMAIN_ID,
-    MAX_UPLOAD_SIZE_BYTES,
-)
+from taqamind.domains.iron_manufacturing.config import DOMAIN_ID
 from taqamind.domains.iron_manufacturing.domain import (
     PROCESS_DEFAULT_TASKS,
     PROCESS_DERIVED_FEATURE_SPECS,
@@ -98,63 +72,29 @@ class IronManufacturingPipeline:
         self.domain_registry = domain_registry or DomainRegistry()
         self.domain_contract: DomainContract = register_iron_manufacturing(self.domain_registry)
 
-        # Shared Core P1.1 & P1.4 storage and dataset/lineage registries
-        self.dataset_storage = LocalDatasetArtifactStorage(
-            self.storage_root, max_size_bytes=MAX_UPLOAD_SIZE_BYTES
-        )
-        self.model_storage = LocalModelArtifactStorage(self.storage_root)
-        self.dataset_registry = LocalDatasetRegistry(
-            self.storage_root / "registries", self.dataset_storage
-        )
-        self.lineage_registry = LocalRecordLineageRegistry(
-            self.storage_root / "registries", dataset_registry=self.dataset_registry
-        )
+        # Shared Core P1.1-P1.8 platform stack wired directly via CorePlatformServices
+        self.core = CorePlatformServices.create_local(self.storage_root)
+        self.dataset_storage = self.core.dataset_storage
+        self.model_storage = self.core.model_storage
+        self.dataset_registry = self.core.dataset_registry
+        self.lineage_registry = self.core.lineage_registry
+        self.split_registry = self.core.split_registry
+        self.usage_registry = self.core.usage_registry
+        self.training_registry = self.core.training_registry
+        self.evaluation_registry = self.core.evaluation_registry
+        self.model_registry = self.core.model_registry
 
-        # P1.6-P1.8 gap adapters (protocols not yet implemented in Shared Core)
-        self.split_registry = LocalSplitRegistry(self.storage_root)
-        self.usage_registry = LocalRecordUsageRegistry(self.storage_root)
-        self.training_registry = LocalTrainingRegistry(self.storage_root)
-        self.evaluation_registry = LocalEvaluationRegistry(
-            self.storage_root,
-            split_registry=self.split_registry,
-            usage_registry=self.usage_registry,
-        )
-        self.model_registry = LocalModelRegistry(
-            self.storage_root, model_storage=self.model_storage
-        )
+        # Restricted data access providers from Shared Core
+        self.dev_data_provider = self.core.development_data_provider
+        self.protected_test_provider = self.core.protected_test_data_provider
+        self.active_model_provider = self.core.active_model_provider
 
-        # Restricted data access providers (P1.7-P1.8)
-        self.dev_data_provider = LocalDevelopmentDataProvider(
-            root=self.storage_root,
-            storage=self.dataset_storage,
-            dataset_registry=self.dataset_registry,
-            lineage_registry=self.lineage_registry,
-            split_registry=self.split_registry,
-            usage_registry=self.usage_registry,
-        )
-        self.protected_test_provider = LocalProtectedTestDataProvider(
-            root=self.storage_root,
-            storage=self.dataset_storage,
-            dataset_registry=self.dataset_registry,
-            lineage_registry=self.lineage_registry,
-            split_registry=self.split_registry,
-            evaluation_registry=self.evaluation_registry,
-        )
-        self.active_model_provider = LocalActiveModelProvider(
-            model_registry=self.model_registry,
-            model_storage=self.model_storage,
-        )
-
-        # Shared Core P1.2, P1.3, P1.5 processing engines (+ thin AUD-001/004 & domain wrappers)
-        self.ingestion = CsvDataIngestion(
-            self.dataset_storage, implementation_version="0.1.0"
-        )
-        self.profiler = PandasDataProfiler(self.dataset_storage)
+        # Processing & ML engines from Shared Core (+ thin domain/AUD-001/AUD-004 wrappers)
+        self.ingestion = self.core.ingestion
+        self.profiler = self.core.profiler
         self.column_mapper = IronUnitAwareColumnMapper(
             self.dataset_storage,
-            inner_mapper=DeterministicColumnMapper(
-                self.dataset_storage, implementation_version="0.1.0"
-            ),
+            inner_mapper=self.core.mapper,
             explicit_column_overrides=column_overrides,
             explicit_unit_overrides=unit_overrides,
             forbidden_predictors_by_process=PROCESS_FORBIDDEN_PREDICTORS,
@@ -162,39 +102,20 @@ class IronManufacturingPipeline:
         )
         self.semantic_validator = IronSemanticValidator(
             self.dataset_storage,
-            inner_validator=ContractSemanticValidator(self.dataset_storage),
+            inner_validator=self.core.validator,
             process_validators=PROCESS_PHYSICAL_VALIDATORS,
         )
-        self.data_cleaner = ContractDataCleaner(
-            self.dataset_storage, implementation_version="0.1.0"
-        )
+        self.data_cleaner = self.core.cleaner
         self.feature_engineer = ProcessFeatureEngineerRouter(
             self.dataset_storage,
             specs_by_process=PROCESS_DERIVED_FEATURE_SPECS,
             implementation_version="0.1.0",
         )
-        self.readiness_checker = LocalTrainingReadinessChecker(
-            storage=self.dataset_storage, lineage_registry=self.lineage_registry
-        )
-        self.splitter = LocalDatasetSplitter(
-            storage=self.dataset_storage,
-            lineage_registry=self.lineage_registry,
-            usage_registry=self.usage_registry,
-        )
-        self.leakage_validator = LocalLeakageValidator(
-            storage=self.dataset_storage,
-            lineage_registry=self.lineage_registry,
-            usage_registry=self.usage_registry,
-        )
-        self.model_trainer = ControlledModelTrainer(
-            development_data_provider=self.dev_data_provider,
-            model_storage=self.model_storage,
-        )
-        self.prediction_engine = ZeroRetrainingPredictionEngine(
-            storage=self.dataset_storage,
-            lineage_registry=self.lineage_registry,
-            active_model_provider=self.active_model_provider,
-        )
+        self.readiness_checker = self.core.readiness_checker
+        self.splitter = self.core.splitter
+        self.leakage_validator = self.core.leakage_validator
+        self.model_trainer = self.core.trainer
+        self.prediction_engine = self.core.prediction_engine
 
         # Application services (training and prediction strictly separated)
         self.training_service = IronTrainingService(
@@ -207,6 +128,7 @@ class IronManufacturingPipeline:
             evaluation_registry=self.evaluation_registry,
             model_registry=self.model_registry,
             test_data_provider=self.protected_test_provider,
+            evaluator_factory=self.core.create_evaluator,
             ingestion=self.ingestion,
             profiler=self.profiler,
             column_mapper=self.column_mapper,

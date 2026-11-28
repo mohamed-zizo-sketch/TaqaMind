@@ -10,6 +10,12 @@ import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline as SklearnPipeline
 
+from taqamind.core.automl.trainer import (
+    ControlledAutoMLTrainer,
+)
+from taqamind.core.automl.trainer import (
+    TabularPreprocessor as CoreAutoMLPreprocessor,
+)
 from taqamind.core.interfaces import (
     AcceptancePolicy,
     ArtifactIntegrityError,
@@ -21,8 +27,6 @@ from taqamind.domains.iron_manufacturing import (
     IronManufacturingPipeline,
     make_synthetic_confirmation,
 )
-from taqamind.domains.iron_manufacturing.adapters._store import strip_computed_fields
-from taqamind.domains.iron_manufacturing.adapters.modeling import ControlledModelTrainer
 from taqamind.domains.iron_manufacturing.cli import main as cli_main
 from taqamind.domains.iron_manufacturing.common.synthetic import (
     generate_synthetic_eaf_dataset,
@@ -59,7 +63,8 @@ def test_mandatory_train_once_predict_many_zero_retraining(
     active_id = train_outcome.active_model_entry.version.model_version_id
     active_sha = train_outcome.active_model_entry.version.artifact.content_sha256
     assert train_outcome.active_model_entry.version.version_number == 1
-    assert pipeline_v1.training_registry.count_runs(factory_id=FACTORY_A_ID) == 1
+    training_files_before = len(list((storage_root / "training_registry").rglob("*.json")))
+    assert training_files_before >= 1
 
     # Prepare a mixed upload: 3 previously trained records + 4 brand-new records
     hist_df = pd.read_csv(eaf_train_csv).drop(columns=["metallic_waste_loss_t"]).head(3)
@@ -81,8 +86,13 @@ def test_mandatory_train_once_predict_many_zero_retraining(
             IronTrainingService, "run_training", side_effect=AssertionError("Training called!")
         ) as spy_train_svc,
         patch.object(
-            ControlledModelTrainer, "train", side_effect=AssertionError("Trainer called!")
+            ControlledAutoMLTrainer, "train", side_effect=AssertionError("Trainer called!")
         ) as spy_trainer,
+        patch.object(
+            CoreAutoMLPreprocessor,
+            "fit",
+            side_effect=AssertionError("CoreAutoMLPreprocessor.fit called!"),
+        ) as spy_core_prep_fit,
         patch.object(
             SklearnPipeline, "fit", side_effect=AssertionError("Pipeline.fit called!")
         ) as spy_fit,
@@ -129,6 +139,7 @@ def test_mandatory_train_once_predict_many_zero_retraining(
 
         assert spy_train_svc.call_count == 0
         assert spy_trainer.call_count == 0
+        assert spy_core_prep_fit.call_count == 0
         assert spy_fit.call_count == 0
         assert spy_fit_transform.call_count == 0
         assert spy_prep_fit.call_count == 0
@@ -152,7 +163,8 @@ def test_mandatory_train_once_predict_many_zero_retraining(
     assert any("previously registered" in w for w in p2.warnings)
 
     # Confirm zero new training runs were created
-    assert reloaded_pipeline.training_registry.count_runs(factory_id=FACTORY_A_ID) == 1
+    training_files_after = len(list((storage_root / "training_registry").rglob("*.json")))
+    assert training_files_after == training_files_before
     model_info = reloaded_pipeline.get_model_info(
         factory_id=FACTORY_A_ID, process_id="eaf_meltshop"
     )
@@ -190,9 +202,9 @@ def test_corrupted_model_artifact_and_incompatible_contract_rejected(
     assert incompat.status == "blocked"
     assert "incompatible contract" in (incompat.blocked_reason or "").lower()
 
-    # 3. Verify corrupted persisted bundle detection using Windows-safe path
+    # 3. Verify corrupted persisted bundle detection inside Core model_storage
     bundle_rel = outcome.active_model_entry.version.artifact.storage_key
-    bundle_path = storage_root.resolve() / bundle_rel
+    bundle_path = (storage_root / "model_storage").resolve() / bundle_rel
     if bundle_path.exists():
         bundle_path.write_bytes(b"CORRUPTED_BYTES_TAMPERED")
     else:
@@ -357,24 +369,6 @@ def test_end_to_end_rebar_rolling_and_cli_workflow(
     rebar_train_csv: Path,
 ) -> None:
     store = storage_root
-    # Also verify recursive ValidationReport computed-field stripping preserves non-report status
-    sample_payload = {
-        "status": "succeeded",
-        "report": {
-            "dataset_id": "rebar_rolling_lot_waste",
-            "contract_version": "1.0.0",
-            "completed_stages": ["semantic_validation"],
-            "issues": [],
-            "status": "ready",
-            "summary": {"total": 0},
-            "has_blocking_issues": False,
-        },
-    }
-    stripped = strip_computed_fields(sample_payload)
-    assert stripped["status"] == "succeeded"
-    assert "status" not in stripped["report"]
-    assert "summary" not in stripped["report"]
-    assert "has_blocking_issues" not in stripped["report"]
     pred_df = generate_synthetic_rebar_dataset(
         n_rows=8,
         seed=55,

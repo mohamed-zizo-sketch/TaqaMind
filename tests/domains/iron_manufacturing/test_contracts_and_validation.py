@@ -7,6 +7,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from taqamind.core.automl import (
+    ControlledAutoMLTrainer,
+    LocalDevelopmentDataProvider,
+    LocalEvaluationRegistry,
+    LocalProtectedTestDataProvider,
+    LocalTrainingRegistry,
+)
 from taqamind.core.contracts import ConfirmationStatus, DatasetPurpose
 from taqamind.core.feature_engineering import DeterministicFeatureEngineer
 from taqamind.core.ingestion import CsvDataIngestion
@@ -36,13 +43,23 @@ from taqamind.core.interfaces import (
     TrainingRegistry,
 )
 from taqamind.core.lineage import LocalRecordLineageRegistry
+from taqamind.core.pipeline import CorePlatformServices
+from taqamind.core.prediction import CorePredictionEngine, LocalActiveModelProvider
 from taqamind.core.preprocessing import ContractDataCleaner
 from taqamind.core.profiling import PandasDataProfiler
+from taqamind.core.readiness import CoreTrainingReadinessChecker
 from taqamind.core.registry import (
     DomainRegistry,
     LocalDatasetArtifactStorage,
     LocalDatasetRegistry,
     LocalModelArtifactStorage,
+    LocalModelRegistry,
+)
+from taqamind.core.splitting import (
+    CoreDatasetSplitter,
+    CoreLeakageValidator,
+    LocalRecordUsageRegistry,
+    LocalSplitRegistry,
 )
 from taqamind.domains.iron_manufacturing import (
     DOMAIN_ID,
@@ -79,8 +96,16 @@ def test_domain_registration_and_default_unconfirmed_targets() -> None:
     again = register_iron_manufacturing(registry)
     assert again == domain
 
-    # All default production targets remain UNCONFIRMED until explicit sign-off
+    # All default production targets (both V1 Waste and V2 Energy) remain UNCONFIRMED
     for process_id in domain.process_ids:
+        process = domain.get_process(process_id)
+        assert len(process.tasks) == 2
+        for task in process.tasks:
+            assert (
+                task.dataset_contract.target.confirmation.status
+                == ConfirmationStatus.UNCONFIRMED
+            )
+            assert not task.dataset_contract.target.is_confirmed
         contract = get_iron_dataset_contract(process_id)
         assert contract.target.confirmation.status == ConfirmationStatus.UNCONFIRMED
         assert not contract.target.is_confirmed
@@ -113,14 +138,28 @@ def test_all_local_adapters_satisfy_shared_core_protocols(
     assert isinstance(pipeline.model_trainer, ModelTrainer)
     assert isinstance(pipeline.prediction_engine, PredictionEngine)
 
-    # Verify real Shared Core P1.1-P1.5 concrete engines are wired directly
+    # Verify real Shared Core P1.1-P1.8 concrete engines are wired via CorePlatformServices
+    assert isinstance(pipeline.core, CorePlatformServices)
     assert isinstance(pipeline.dataset_storage, LocalDatasetArtifactStorage)
     assert isinstance(pipeline.model_storage, LocalModelArtifactStorage)
     assert isinstance(pipeline.dataset_registry, LocalDatasetRegistry)
     assert isinstance(pipeline.lineage_registry, LocalRecordLineageRegistry)
+    assert isinstance(pipeline.split_registry, LocalSplitRegistry)
+    assert isinstance(pipeline.usage_registry, LocalRecordUsageRegistry)
+    assert isinstance(pipeline.training_registry, LocalTrainingRegistry)
+    assert isinstance(pipeline.evaluation_registry, LocalEvaluationRegistry)
+    assert isinstance(pipeline.model_registry, LocalModelRegistry)
+    assert isinstance(pipeline.dev_data_provider, LocalDevelopmentDataProvider)
+    assert isinstance(pipeline.protected_test_provider, LocalProtectedTestDataProvider)
+    assert isinstance(pipeline.active_model_provider, LocalActiveModelProvider)
     assert isinstance(pipeline.ingestion, CsvDataIngestion)
     assert isinstance(pipeline.profiler, PandasDataProfiler)
     assert isinstance(pipeline.data_cleaner, ContractDataCleaner)
+    assert isinstance(pipeline.readiness_checker, CoreTrainingReadinessChecker)
+    assert isinstance(pipeline.splitter, CoreDatasetSplitter)
+    assert isinstance(pipeline.leakage_validator, CoreLeakageValidator)
+    assert isinstance(pipeline.model_trainer, ControlledAutoMLTrainer)
+    assert isinstance(pipeline.prediction_engine, CorePredictionEngine)
     for proc in ("eaf_meltshop", "rebar_hot_rolling", "scrap_yard_reception"):
         assert isinstance(
             pipeline.feature_engineer.get_engineer(proc), DeterministicFeatureEngineer
@@ -172,8 +211,18 @@ def test_valid_and_invalid_unit_conversions(tmp_path: Path, storage_root: Path) 
     converted = convert_series_unit(s, "kg", "metric_ton")
     assert converted.tolist() == [1.0, 2.5]
 
-    with pytest.raises(UnitConversionError):
-        convert_series_unit(s, "kg", "degC")
+    # Dimensionally incompatible, unknown, count-to-mass, and mass-to-length conversions fail
+    for bad_src, bad_dst in (
+        ("kg", "degC"),
+        ("unknown_unit", "metric_ton"),
+        ("billets", "kg"),
+        ("heats", "metric_ton"),
+        ("kg", "m"),
+        ("m", "metric_ton"),
+        ("kWh", "kg"),
+    ):
+        with pytest.raises(UnitConversionError):
+            convert_series_unit(s, bad_src, bad_dst)
 
     # End-to-end invalid unit override is blocked cleanly in column mapping
     df = generate_synthetic_eaf_dataset(n_rows=10, seed=2, include_target=True)
