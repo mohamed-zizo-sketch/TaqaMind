@@ -24,13 +24,12 @@ from taqamind.domains.iron_manufacturing import (
     IronManufacturingPipeline,
     get_iron_task,
 )
-from taqamind.domains.iron_manufacturing.adapters.readiness_and_splitting import (
-    build_record_scope,
-)
 from taqamind.domains.iron_manufacturing.common.synthetic import (
     generate_synthetic_eaf_dataset,
 )
 from taqamind.domains.iron_manufacturing.services.lineage_service import (
+    build_record_scope,
+    read_artifact_df,
     register_dataset_lineage,
 )
 from tests.domains.iron_manufacturing.conftest import FACTORY_A_ID, FACTORY_B_ID
@@ -144,11 +143,7 @@ def test_identical_features_distinct_business_keys_and_corrected_versions(
     ctx1, contract, art1, _ = _make_engineered_artifact(
         pipeline, FACTORY_A_ID, df, synthetic_confirmation
     )
-    from taqamind.domains.iron_manufacturing.adapters._store import (
-        read_artifact_df as _read_artifact_df,
-    )
-
-    eng_df1 = _read_artifact_df(pipeline.dataset_storage, FACTORY_A_ID, art1)
+    eng_df1 = read_artifact_df(pipeline.dataset_storage, FACTORY_A_ID, art1)
     lin1 = register_dataset_lineage(
         context=ctx1,
         artifact=art1,
@@ -164,7 +159,7 @@ def test_identical_features_distinct_business_keys_and_corrected_versions(
     ctx2, _, art2, _ = _make_engineered_artifact(
         pipeline, FACTORY_A_ID, df, synthetic_confirmation
     )
-    eng_df2 = _read_artifact_df(pipeline.dataset_storage, FACTORY_A_ID, art2)
+    eng_df2 = read_artifact_df(pipeline.dataset_storage, FACTORY_A_ID, art2)
     lin2 = register_dataset_lineage(
         context=ctx2,
         artifact=art2,
@@ -182,7 +177,7 @@ def test_identical_features_distinct_business_keys_and_corrected_versions(
     ctx3, _, art3, _ = _make_engineered_artifact(
         pipeline, FACTORY_A_ID, df_corr, synthetic_confirmation
     )
-    eng_df3 = _read_artifact_df(pipeline.dataset_storage, FACTORY_A_ID, art3)
+    eng_df3 = read_artifact_df(pipeline.dataset_storage, FACTORY_A_ID, art3)
     with pytest.raises(ValueError, match="explicit correction confirmation"):
         register_dataset_lineage(
             context=ctx3,

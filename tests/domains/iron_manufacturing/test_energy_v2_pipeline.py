@@ -86,9 +86,11 @@ def test_v2_energy_contracts_separated_and_unconfirmed_by_default(
         assert col not in energy_task.dataset_contract.predictor_names
 
 
-def test_unconfirmed_energy_target_blocks_training(tmp_path: Path) -> None:
+def test_unconfirmed_energy_target_blocks_training(
+    tmp_path: Path, storage_root: Path
+) -> None:
     factory_id = uuid4()
-    service = IronEnergyPipelineService(tmp_path / "platform")
+    service = IronEnergyPipelineService(storage_root)
     unconfirmed_contract = get_iron_energy_dataset_contract(EAF_PROCESS_ID)
     train_csv = tmp_path / "eaf_train.csv"
     generate_synthetic_iron_energy_dataset(EAF_PROCESS_ID, n_rows=60, seed=42).to_csv(
@@ -111,9 +113,11 @@ def test_unconfirmed_energy_target_blocks_training(tmp_path: Path) -> None:
         )
 
 
-def test_leakage_columns_rejected_on_ingest_and_prediction(tmp_path: Path) -> None:
+def test_leakage_columns_rejected_on_ingest_and_prediction(
+    tmp_path: Path, storage_root: Path
+) -> None:
     factory_id = uuid4()
-    service = IronEnergyPipelineService(tmp_path / "platform")
+    service = IronEnergyPipelineService(storage_root)
     contract = get_iron_energy_dataset_contract(
         EAF_PROCESS_ID,
         confirmation=build_synthetic_iron_energy_confirmation(),
@@ -175,12 +179,13 @@ def test_leakage_columns_rejected_on_ingest_and_prediction(tmp_path: Path) -> No
 )
 def test_end_to_end_energy_lifecycle_zero_retraining_and_factory_isolation(
     tmp_path: Path,
+    storage_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     process_id: str,
 ) -> None:
     factory_a = uuid4()
     factory_b = uuid4()
-    store_dir = tmp_path / f"platform_{process_id}"
+    store_dir = storage_root
     service = IronEnergyPipelineService(store_dir)
     confirmation = build_synthetic_iron_energy_confirmation()
     contract = get_iron_energy_dataset_contract(process_id, confirmation=confirmation)
@@ -262,9 +267,11 @@ def test_end_to_end_energy_lifecycle_zero_retraining_and_factory_isolation(
         )
 
 
-def test_v2_energy_retraining_promotion_and_version_history(tmp_path: Path) -> None:
+def test_v2_energy_retraining_promotion_and_version_history(
+    tmp_path: Path, storage_root: Path
+) -> None:
     factory_id = uuid4()
-    service = IronEnergyPipelineService(tmp_path / "platform_retrain")
+    service = IronEnergyPipelineService(storage_root)
     contract = get_iron_energy_dataset_contract(
         EAF_PROCESS_ID,
         confirmation=build_synthetic_iron_energy_confirmation(),
@@ -345,7 +352,9 @@ def test_v2_energy_retraining_promotion_and_version_history(tmp_path: Path) -> N
     assert v1_after.status == ModelStatus.ARCHIVED
 
 
-def test_v2_energy_templates_and_cli_parity(tmp_path: Path) -> None:
+def test_v2_energy_templates_and_cli_parity(
+    tmp_path: Path, storage_root: Path
+) -> None:
     for process_id in (EAF_PROCESS_ID, REBAR_PROCESS_ID, SCRAP_YARD_PROCESS_ID):
         files = generate_energy_process_templates(process_id, tmp_path / "tpl" / process_id)
         hist_df = pd.read_csv(files["historical_template"])
@@ -356,7 +365,7 @@ def test_v2_energy_templates_and_cli_parity(tmp_path: Path) -> None:
         assert len(hist_df) == 3
         assert len(pred_df) == 3
 
-    store = tmp_path / "cli_store"
+    store = storage_root
     factory_id = uuid4()
     train_csv = tmp_path / "scrap_train.csv"
     pred_csv = tmp_path / "scrap_pred.csv"

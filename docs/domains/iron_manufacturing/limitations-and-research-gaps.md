@@ -1,18 +1,17 @@
-# Limitations, Local Adapter Constraints & Research Gaps — `iron_manufacturing`
+# Limitations, Platform Constraints & Research Gaps — `iron_manufacturing`
 
-## 1. Production Readiness Status
-- **Software Pipeline Status:** **Implemented & Verified** on deterministic synthetic fixtures across all 3 processes (`eaf_meltshop`, `rebar_hot_rolling`, `scrap_yard_reception`).
-- **Industrial Production Readiness Status:** **`BLOCKED` (NOT production-ready yet)** — synthetic tests verify software correctness, leakage guards, and zero-retraining architecture, **not** predictive accuracy on real Egyptian steel plants.
+## 1. Software vs Industrial Production Status (V1 Waste & V2 Energy)
+- **Software Pipeline Status (V1 Waste + V2 Electrical Energy):** **Implemented & Verified** directly on Shared Core `CorePlatformServices.create_local(...)` (P1.1–P1.8) across all 3 processes (`eaf_meltshop`, `rebar_hot_rolling`, `scrap_yard_reception`) with zero duplicated P1.6–P1.8 adapters.
+- **Industrial Production Readiness Status:** **`BLOCKED` (NOT production-ready yet)** — all V1 waste targets and V2 electrical energy targets ship with `ConfirmationStatus.UNCONFIRMED`. Offline synthetic tests verify software architecture, leakage prevention, unit safety, factory isolation, and zero-retraining inference — **not** predictive accuracy on real Egyptian steel plants.
 
 ## 2. Unresolved Industrial Research Gaps & Factory Confirmations Required
-1. **No Real Egyptian Labeled Factory Data Yet:** All 5 supplied raw datasets are foreign or synthetic/parameter tables (`ALCHIMIA` EU, `Yandex LF`, `UCI 851` Korea, `Zenodo 22162000/21447633`). Real 6–12 month Egyptian Level-2 MES + ERP historical CSVs are required per facility.
-2. **EAF Target & Hot-Heel Accounting Confirmation (`eaf_meltshop`):** Partner Egyptian factories must confirm whether `actual_liquid_steel_tapped_t` comes from ladle crane load cells or billet counts, how retained hot heel is estimated, and whether recovered ladle/tundish skulls are credited back.
-3. **Rolling Mill Scale Measurement (`rebar_hot_rolling`):** Factories must confirm whether `mill_scale_kg` is directly weighed or estimated, and whether commercial short bars are excluded from waste.
-4. **Scrap Yard Weighbridge Timing (`scrap_yard_reception`):** Confirm whether `gross_delivery_mass_kg` is recorded at entry weighbridge before unloading and whether `Soil`/`Water`/`Other` deductions are physically weighed or visually estimated.
-5. **DRI Lab Assay Timing:** Confirm `dri_metallization_pct` and `dri_gangue_pct` from DRP LIMS are available prior to `t0`.
+1. **No Real Egyptian Labeled Factory Data Yet (V1 & V2):** Public datasets audited (`ALCHIMIA` EU, `Yandex LF`, `UCI 851` Korea 15-min plant meter, `Zenodo 22162000/21447633`) are foreign, wrong-granularity, or synthetic/parameter tables. Real 6–12 month Egyptian Level-2 MES + ERP + sub-metered `kWh` CSVs are required per facility.
+2. **V1 EAF Target & Hot-Heel Accounting (`eaf_meltshop`):** Partner factories must confirm `actual_liquid_steel_tapped_t` measurement source, retained hot-heel estimation, and ladle/tundish skull crediting.
+3. **V1 Rolling Mill Scale & Commercial Short Bars (`rebar_hot_rolling`):** Confirm whether `mill_scale_kg` is weighed vs estimated and whether commercial short bars are excluded from waste.
+4. **V1 Scrap Yard Weighbridge Timing (`scrap_yard_reception`):** Confirm whether `gross_delivery_mass_kg` is captured at entry weighbridge prior to unloading and whether contaminant deductions are weighed vs visually estimated.
+5. **V2 Sub-Metering Boundary Confirmation (All 3 Processes):** Confirm sub-metered active `kWh` isolation from natural gas thermal fuels (oxy-fuel burners, DRI shaft gas, reheating furnace gas), diesel mobile loaders, and whole-plant HVAC/office feeders before confirming V2 targets.
 
-## 3. Technical Limitations of Temporary Local Adapters
-- **Local Filesystem Concurrency:** Atomic `os.replace` writes prevent torn JSON files in single-process workflows, but multi-worker concurrent production deployments require transactional database locks (PostgreSQL + RLS).
-- **Resource Budget Enforcement:** `TrainingBudget.max_trials` and `max_parallel_jobs=1` are strictly enforced; hard wall-clock/memory kill limits (`max_training_seconds`, `max_memory_mb`) are metadata-documented in the local adapter and require OS worker-process isolation when migrated to Shared Core.
-- **No Production Auth / DB / API:** Explicitly deferred out of scope per TaqaMind architecture phase.
-- **Future Modules Deferred:** Energy Efficiency (`SEC`, EgyptERA `0.92` PF), Business/Cost (`EGP/t` leakage), and Operations Research (`OR-1` TOU scheduling, `OR-2` charge-mix optimization) are documented in `domain-specification.md` and intentionally not executed in this V1 waste-regression package.
+## 3. Local Runtime Constraints
+- **Local Filesystem Persistence (`CorePlatformServices.create_local`):** Suitable for single-node local validation and pilot workflows; concurrent multi-worker production deployment requires transactional database/object storage backends behind Shared Core protocols.
+- **Windows `MAX_PATH` Note:** Deep Windows temp paths (>260 chars) combined with nested `CorePlatformServices` lineage/model keys can trigger `WinError 3` in Core `_json_store.py` unless a short storage root is used (or Windows long paths are enabled). Domain tests use a short `storage_root` fixture in `tests/domains/iron_manufacturing/conftest.py`.
+- **Future Modules Still Out of Scope:** Business Analytics / Cost Optimization (`EGP/t`) and Operations Research (`OR-1` TOU scheduling, `OR-2` charge-mix blending) remain documented scope only.

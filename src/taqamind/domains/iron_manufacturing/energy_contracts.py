@@ -32,17 +32,12 @@ from taqamind.domains.iron_manufacturing.config import DOMAIN_ID
 from taqamind.domains.iron_manufacturing.processes.eaf_meltshop import (
     EAF_PROCESS_ID,
     build_eaf_derived_feature_specs,
-    engineer_eaf_features,
 )
 from taqamind.domains.iron_manufacturing.processes.rebar_hot_rolling import (
     REBAR_PROCESS_ID,
-    build_rebar_derived_feature_specs,
-    engineer_rebar_features,
 )
 from taqamind.domains.iron_manufacturing.processes.scrap_yard_reception import (
     SCRAP_YARD_PROCESS_ID,
-    build_scrap_yard_derived_feature_specs,
-    engineer_scrap_yard_features,
 )
 
 EAF_ENERGY_TASK_ID = "eaf_electrical_energy_regression"
@@ -672,9 +667,7 @@ def build_iron_energy_derived_specs(process_id: str) -> tuple[DerivedFeatureSpec
         )
         return reused_eaf + (nameplate_spec,)
     if process_id == REBAR_PROCESS_ID:
-        _ = (build_rebar_derived_feature_specs, engineer_rebar_features, engineer_eaf_features)
         return (nameplate_spec,)
     if process_id == SCRAP_YARD_PROCESS_ID:
-        _ = (build_scrap_yard_derived_feature_specs, engineer_scrap_yard_features)
         return (nameplate_spec,)
     raise ValueError(f"Unsupported iron_manufacturing process '{process_id}'.")

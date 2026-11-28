@@ -25,11 +25,11 @@ from taqamind.core.interfaces import (
     validate_model_transition,
 )
 from taqamind.domains.iron_manufacturing import IronManufacturingPipeline
-from taqamind.domains.iron_manufacturing.adapters.readiness_and_splitting import (
-    build_record_scope,
-)
 from taqamind.domains.iron_manufacturing.common.synthetic import (
     generate_synthetic_eaf_dataset,
+)
+from taqamind.domains.iron_manufacturing.services.lineage_service import (
+    build_record_scope,
 )
 from tests.domains.iron_manufacturing.conftest import FACTORY_A_ID
 
@@ -51,9 +51,9 @@ def test_training_blocked_when_target_unconfirmed_or_insufficient_rows(
     assert unconfirmed_out.readiness_result is not None
     assert not unconfirmed_out.readiness_result.eligible_for_split
 
-    # 2. Insufficient rows (< 30) -> BLOCKED
+    # 2. Insufficient rows (< Core min_rows=12) -> BLOCKED
     tiny_df = generate_synthetic_eaf_dataset(
-        n_rows=12, seed=7, include_target=True, start_index=5001
+        n_rows=6, seed=7, include_target=True, start_index=5001
     )
     tiny_csv = tmp_path / "tiny.csv"
     tiny_df.to_csv(tiny_csv, index=False)
@@ -67,7 +67,7 @@ def test_training_blocked_when_target_unconfirmed_or_insufficient_rows(
     assert tiny_out.status == "blocked"
     assert tiny_out.readiness_result is not None
     assert any(
-        i.code == "INSUFFICIENT_OBSERVATIONS"
+        i.code in {"INSUFFICIENT_ROW_COUNT", "INSUFFICIENT_OBSERVATIONS"}
         for i in tiny_out.readiness_result.result.report.issues  # type: ignore[union-attr]
     )
 
